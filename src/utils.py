@@ -1,5 +1,7 @@
 import re
-
+import pyphen
+import cmudict
+from pathlib import Path
 # ----------------------------
 # Utility functions for readability metrics
 # ----------------------------
@@ -7,8 +9,6 @@ import re
 def word_count(text):
     """Return the number of words in the text."""
     return len(text.split())
-
-import re
 
 def sentence_count(text):
     """
@@ -62,6 +62,66 @@ def letter_count(text):
     """Return the number of alphabetic characters (letters) in the text."""
     return sum(1 for char in text if char.isalpha())
 
+# pyphen dictionaries
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+ITALIAN_HYPHEN_DICT_PATH = PROJECT_ROOT / "dictionaries" / "hyph_it_IT.dic"
+
+if ITALIAN_HYPHEN_DICT_PATH.exists():
+    dic_it = pyphen.Pyphen(filename=str(ITALIAN_HYPHEN_DICT_PATH))
+else:
+    dic_it = pyphen.Pyphen(lang="it_IT")
+
+def count_syllables_it(word):
+    """Count syllables for Italian using custom LibreOffice dictionary"""
+    syllables = dic_it.inserted(word).split("-")
+    return max(len(syllables), 1)
+
+cmu_dict = cmudict.dict()
+
+def count_syllables_en(word):
+
+    """Count syllables for English using CMUdict"""
+
+    word_lower = word.lower()
+
+    if word_lower in cmu_dict:
+
+        # Count vowels in the first pronunciation variant
+
+        return len([ph for ph in cmu_dict[word_lower][0] if ph[-1].isdigit()])
+
+    else:
+
+        # fallback: count vowel groups as approximate syllables
+
+        vowels = "aeiouy"
+
+        count = 0
+
+        prev_vowel = False
+
+        for char in word_lower:
+
+            if char in vowels:
+
+                if not prev_vowel:
+
+                    count += 1
+
+                prev_vowel = True
+
+            else:
+
+                prev_vowel = False
+
+        return max(count, 1)
+    
+## DEBUG
+if __name__ == "__main__":
+    print(count_syllables_en("syllable"))  # Should return 3
+    print(count_syllables_it("parallelepipedo")) # Should return 7
+## DEBUG
 # ----------------------------
 # Readability indexes
 # ----------------------------
