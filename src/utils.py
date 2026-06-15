@@ -145,6 +145,19 @@ def gulpease_index(text):
     result = 89 + ((sentence_score - letter_penalty) / n_words)
     return result
 
+def average_words_per_sentence(text):
+    """
+    Calculate the average number of words per sentence in the given text.
+    
+    Uses the existing word_count and sentence_count functions.
+    Returns None if there are no sentences to avoid division by zero.
+    """
+    n_words = word_count(text)
+    n_sentences = sentence_count(text)
+    if n_sentences == 0:
+        return None
+    return n_words / n_sentences
+
 # ----------------------------
 # JSON utility
 # ----------------------------

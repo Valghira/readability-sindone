@@ -92,5 +92,15 @@ def generate_gulpease_report(process_all_categories=False, category=None, sub_ca
 # Generate the readability report CSV
 # ----------------------------
 
-generate_gulpease_report(process_all_categories=False, category="adult", sub_category="typical")
+#generate_gulpease_report(process_all_categories=False, category="adult", sub_category="typical")
 # generate_gulpease_report(process_all_categories=False, category="category_name", sub_category="sub_category_name")
+
+## TEST
+
+# QUICK TESTS FOR average_words_per_sentence (easy to remove later)
+print(utils.average_words_per_sentence("Hello world!"))  # Expected: 2.0
+print(utils.average_words_per_sentence("One sentence only."))  # Expected: 3.0
+print(utils.average_words_per_sentence("First sentence. Second sentence here."))  # Expected: 2.5
+print(utils.average_words_per_sentence("A. B. C. D."))  # Expected: 1.0
+print(utils.average_words_per_sentence(""))  # Expected: 0 or handle gracefully
+print(utils.average_words_per_sentence("This is a longer sentence to test the average. And here is another one."))  # Expected: around 7.0
