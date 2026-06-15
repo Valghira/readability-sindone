@@ -137,6 +137,21 @@ def average_words_per_sentence(text):
         return None
     return n_words / n_sentences
 
+def average_syllables_per_word(text):
+    """
+    Calculate the average number of syllables per word in the given text.
+
+    Uses the existing word_count function and counts syllables for each word.
+    Returns None if there are no words to avoid division by zero.
+    """
+    words = text.split()
+    n_words = word_count(text)
+    if n_words == 0:
+        return None
+    
+    total_syllables = sum(count_syllables_en(word) for word in words)
+    return total_syllables / n_words
+
 # ----------------------------
 # JSON utility
 # ----------------------------

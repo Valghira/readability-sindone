@@ -95,4 +95,5 @@ def generate_gulpease_report(process_all_categories=False, category=None, sub_ca
 
 #generate_gulpease_report(process_all_categories=False, category="adult", sub_category="typical")
 # generate_gulpease_report(process_all_categories=False, category="category_name", sub_category="sub_category_name")
-generate_gulpease_report(process_all_categories=True)
+# generate_gulpease_report(process_all_categories=True)
+print(utils.average_syllables_per_word("This is a test sentence to calculate the average syllables per word.")) # Should return a value around 1.5

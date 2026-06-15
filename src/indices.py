@@ -23,4 +23,18 @@ def gulpease_index(text):
     result = 89 + ((sentence_score - letter_penalty) / n_words)
     return result
 
+def flesch_kincaid_index(text):
+    """
+    Calculate the Flesch-Kincaid index for a given text.
+    Formula: 206.835 - (1.015 * average_words_per_sentence) - (84.6 * average_syllables_per_word)
+    Returns None if the text contains no words or sentences.
+    """
+    avg_words_per_sentence = utils.average_words_per_sentence(text)
+    avg_syllables_per_word = utils.average_syllables_per_word(text)
 
+    if avg_words_per_sentence is None or avg_syllables_per_word is None:
+        return None
+
+    result = 206.835 - (1.015 * avg_words_per_sentence) - (84.6 * avg_syllables_per_word)
+    return result
+    
