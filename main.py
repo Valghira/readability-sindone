@@ -2,7 +2,8 @@ import json
 import csv
 import os
 from datetime import datetime
-from src import utils 
+from src import utils
+from src import indices
 
 # ----------------------------
 # Configuration settings
@@ -47,7 +48,7 @@ def generate_gulpease_report(process_all_categories=False, category=None, sub_ca
 
     # Compute readability scores for each sentence
     for idx, sentence in enumerate(sentences, start=1):
-        raw_score = utils.gulpease_index(sentence)
+        raw_score = indices.gulpease_index(sentence)
         if raw_score is None:
             normalized_score = None
             raw_score_rounded = None
@@ -94,13 +95,4 @@ def generate_gulpease_report(process_all_categories=False, category=None, sub_ca
 
 #generate_gulpease_report(process_all_categories=False, category="adult", sub_category="typical")
 # generate_gulpease_report(process_all_categories=False, category="category_name", sub_category="sub_category_name")
-
-## TEST
-
-# QUICK TESTS FOR average_words_per_sentence (easy to remove later)
-print(utils.average_words_per_sentence("Hello world!"))  # Expected: 2.0
-print(utils.average_words_per_sentence("One sentence only."))  # Expected: 3.0
-print(utils.average_words_per_sentence("First sentence. Second sentence here."))  # Expected: 2.5
-print(utils.average_words_per_sentence("A. B. C. D."))  # Expected: 1.0
-print(utils.average_words_per_sentence(""))  # Expected: 0 or handle gracefully
-print(utils.average_words_per_sentence("This is a longer sentence to test the average. And here is another one."))  # Expected: around 7.0
+generate_gulpease_report(process_all_categories=True)

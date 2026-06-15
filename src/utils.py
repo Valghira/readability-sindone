@@ -122,33 +122,12 @@ if __name__ == "__main__":
     print(count_syllables_en("syllable"))  # Should return 3
     print(count_syllables_it("parallelepipedo")) # Should return 7
 ## DEBUG
-# ----------------------------
-# Readability indexes
-# ----------------------------
 
-def gulpease_index(text):
-    """
-    Calculate the Gulpease index for a given text.
-    Formula: 89 + (300 * sentences - 10 * letters) / words
-    Returns None if the text contains no words.
-    """
-    n_sentences = sentence_count(text)
-    n_letters = letter_count(text)
-    n_words = word_count(text)
-
-    if n_words == 0:
-        return None
-
-    sentence_score = 300 * n_sentences
-    letter_penalty = 10 * n_letters
-
-    result = 89 + ((sentence_score - letter_penalty) / n_words)
-    return result
 
 def average_words_per_sentence(text):
     """
     Calculate the average number of words per sentence in the given text.
-    
+
     Uses the existing word_count and sentence_count functions.
     Returns None if there are no sentences to avoid division by zero.
     """
