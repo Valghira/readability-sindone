@@ -1,0 +1,4 @@
+pyphen
+cmudict
+textstat
+pandas
