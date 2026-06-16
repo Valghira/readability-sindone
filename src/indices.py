@@ -23,18 +23,37 @@ def gulpease_index(text):
     result = 89 + ((sentence_score - letter_penalty) / n_words)
     return result
 
-def flesch_kincaid_index(text):
+def flesch_index(text, lang="en"):
     """
-    Calculate the Flesch-Kincaid index for a given text.
-    Formula: 206.835 - (1.015 * average_words_per_sentence) - (84.6 * average_syllables_per_word)
-    Returns None if the text contains no words or sentences.
+    Compute the Flesch readability index based on the language of the text.
+
+    Parameters:
+    -----------
+    text : str
+        Input text to analyze.
+    lang : str
+        'it' for Italian, 'en' for English.
+
+    Returns:
+    --------
+    float
+        Readability index according to Flesch formula.
     """
-    avg_words_per_sentence = utils.average_words_per_sentence(text)
-    avg_syllables_per_word = utils.average_syllables_per_word(text)
-
-    if avg_words_per_sentence is None or avg_syllables_per_word is None:
-        return None
-
-    result = 206.835 - (1.015 * avg_words_per_sentence) - (84.6 * avg_syllables_per_word)
-    return result
+    words = utils.word_count(text)
+    sentences = utils.sentence_count(text)
+    if sentences == 0 or words == 0:
+        return None  # Avoid division by zero
     
+    avg_words_per_sentence = words / sentences
+
+    # Count syllables for each word depending on language
+    if lang == "it":
+        syllables = sum(utils.count_syllables_it(w) for w in text.split())
+        avg_syllables_per_word = syllables / words
+        flesch_score = 206 - (0.65 * avg_words_per_sentence) - (0.75 * avg_syllables_per_word)
+    else:  # English
+        syllables = sum(utils.count_syllables_en(w) for w in text.split())
+        avg_syllables_per_word = syllables / words
+        flesch_score = 206.835 - 1.015 * avg_words_per_sentence - 84.6 * avg_syllables_per_word
+
+    return round(flesch_score, 2)

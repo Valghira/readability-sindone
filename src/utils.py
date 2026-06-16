@@ -80,48 +80,24 @@ def count_syllables_it(word):
 cmu_dict = cmudict.dict()
 
 def count_syllables_en(word):
-
     """Count syllables for English using CMUdict"""
-
     word_lower = word.lower()
-
     if word_lower in cmu_dict:
-
         # Count vowels in the first pronunciation variant
-
         return len([ph for ph in cmu_dict[word_lower][0] if ph[-1].isdigit()])
-
     else:
-
         # fallback: count vowel groups as approximate syllables
-
         vowels = "aeiouy"
-
         count = 0
-
         prev_vowel = False
-
         for char in word_lower:
-
             if char in vowels:
-
                 if not prev_vowel:
-
                     count += 1
-
                 prev_vowel = True
-
             else:
-
                 prev_vowel = False
-
         return max(count, 1)
-    
-## DEBUG
-if __name__ == "__main__":
-    print(count_syllables_en("syllable"))  # Should return 3
-    print(count_syllables_it("parallelepipedo")) # Should return 7
-## DEBUG
 
 
 def average_words_per_sentence(text):

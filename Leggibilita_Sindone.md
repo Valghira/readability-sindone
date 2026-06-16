@@ -42,9 +42,48 @@ Interpretazione dei valori:
 Fonti:
 - [Wikipedia - Indice Gulpease](https://it.wikipedia.org/wiki/Indice_Gulpease)
 
-## 4. Evoluzione degli script
+## 4. L'indice Flesch
 
-### 4.1 Prima versione: testo come stringa diretta (versione originale)
+L'indice Flesch (o Flesch Reading Ease) è uno degli indici di leggibilità più diffusi al mondo. È stato originariamente sviluppato da Rudolf Flesch nel 1948 per la lingua inglese e successivamente adattato ad altre lingue, tra cui l'italiano.
+
+A differenza dell'indice Gulpease — che usa lettere, parole e frasi — il Flesch si basa sul numero medio di **sillabe per parola** e sul numero medio di **parole per frase**.
+
+### Formula per l'inglese
+
+\[ F_{en} = 206.835 - 1.015 \cdot \frac{Parole}{Frasi} - 84.6 \cdot \frac{Sillabe}{Parole} \]
+
+### Formula adattata per l'italiano
+
+La versione italiana utilizza coefficienti diversi, poiché le parole italiane tendono ad avere più sillabe delle inglesi:
+
+\[ F_{it} = 206 - 0.65 \cdot \frac{Parole}{Frasi} - 0.75 \cdot \frac{Sillabe}{Parole} \]
+
+### Interpretazione dei valori
+
+| Punteggio | Livello di leggibilità |
+|-----------|----------------------|
+| 90–100 | Molto facile |
+| 70–90 | Facile |
+| 50–70 | Abbastanza difficile |
+| 30–50 | Difficile |
+| 0–30 | Molto difficile |
+
+### Conteggio delle sillabe
+
+Per il conteggio delle sillabe vengono usati due approcci distinti in base alla lingua:
+
+- **Italiano**: si utilizza il dizionario di sillabazione **LibreOffice** (`hyph_it_IT.dic`) tramite la libreria `pyphen`. Se il dizionario personalizzato è presente nella cartella `dictionaries/`, viene usato quello; altrimenti si utilizza il dizionario predefinito di pyphen per l'italiano.
+- **Inglese**: si utilizza il **CMUdict** (Carnegie Mellon University Pronouncing Dictionary), che fornisce le trascrizioni fonetiche delle parole e permette di contare le sillabe contando i fonemi vocalici. Per le parole non presenti nel dizionario è previsto un fallback basato sul conteggio dei gruppi vocalici.
+
+Fonti:
+- [Wikipedia - Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch)
+- [Wikipedia - Flesch–Kincaid readability tests](https://en.wikipedia.org/wiki/Flesch%E2%80%93Kincaid_readability_tests)
+
+---
+
+## 5. Evoluzione degli script
+
+### 5.1 Prima versione: testo come stringa diretta (versione originale)
 
 In questa prima versione, il testo viene passato direttamente come stringa e si utilizzano funzioni base per calcolare l'indice Gulpease e i conteggi di parole, frasi e lettere.
 
@@ -68,7 +107,7 @@ print(f"Parole: {word_count(text)} | Frasi: {sentence_count(text)} | Lettere: {l
 
 ---
 
-### 4.2 Versione intermedia con lettura da JSON (versione originale)
+### 5.2 Versione intermedia con lettura da JSON (versione originale)
 
 In questa versione si introduce la lettura da un file JSON e l'estrazione ricorsiva delle frasi, mantenendo l'uso della funzione `sentence_count` originale.
 
@@ -95,7 +134,7 @@ for idx, sentence in enumerate(sentences, start=1):
 
 ---
 
-### 4.3 Problemi riscontrati con il conteggio delle frasi e introduzione della funzione `refined_sentence_count`
+### 5.3 Problemi riscontrati con il conteggio delle frasi e introduzione della funzione `refined_sentence_count`
 
 Il conteggio delle frasi è un aspetto cruciale per il calcolo dell'indice Gulpease, tuttavia risulta spesso non banale a causa di alcune difficoltà intrinseche nel testo.
 
@@ -111,7 +150,7 @@ Il conteggio delle frasi è un aspetto cruciale per il calcolo dell'indice Gulpe
 
 ---
 
-### 4.4 Nuova versione aggiornata con `refined_sentence_count` e report CSV (versione evoluta)
+### 5.4 Nuova versione aggiornata con `refined_sentence_count` e report CSV (versione evoluta)
 
 Questa versione utilizza la nuova funzione `refined_sentence_count` per un conteggio più accurato delle frasi e introduce la generazione di un report in formato CSV con colonne sia per i valori grezzi che per quelli normalizzati dell'indice Gulpease.
 
@@ -155,10 +194,123 @@ def generate_report(data, output_file):
 
 ---
 
-### 4.5 Commenti generali sulle versioni e l'evoluzione
+### 5.5 Commenti generali sulle versioni e l'evoluzione
 
 - Le funzioni sono modulari e facilmente estendibili.
-- La logica attuale considera una frase come sequenza terminata da `.`, `!`, `?`, ma la nuova funzione `refined_sentence_count` migliora questa definizione con regole più accurate.
+- La logica attuale considera una frase come sequenza terminata da `.`, `!`, `?`, ma la funzione `sentence_count` migliora questa definizione con regole più accurate (gestione abbreviazioni, ellissi, punteggiatura multipla).
 - Il sistema può essere facilmente adattato per limitare il numero di frasi analizzate, utile in vista di una futura interfaccia GUI.
-- È pronto per estendere l'analisi anche ad altri indici di leggibilità come Flesch o Gunning Fog.
 - La conservazione delle versioni precedenti nel documento permette di tracciare l'evoluzione metodologica e di giustificare le scelte tecniche nel lavoro di tesi.
+
+---
+
+### 5.6 Versione attuale: architettura multi-indice e multi-lingua
+
+Questa è la versione corrente del sistema. Introduce il supporto a più indici di leggibilità e più lingue all'interno di un'unica funzione di generazione report, eliminando la dipendenza da una singola formula fissa.
+
+#### Architettura: registro degli indici
+
+Il cuore della nuova architettura è un **registro degli indici** (`INDEX_REGISTRY`) che mappa il nome di ogni indice alla funzione che lo calcola. Affiancato da un dizionario delle **lingue supportate** (`INDEX_LANGS`), permette di sapere quali indici applicare a quale lingua senza logica condizionale sparsa nel codice.
+
+```python
+# Maps index name → callable(text, lang) → score
+INDEX_REGISTRY = {
+    "gulpease": lambda text, lang: indices.gulpease_index(text),
+    "flesch":   lambda text, lang: indices.flesch_index(text, lang),
+}
+
+# Maps index name → set of languages it supports
+INDEX_LANGS = {
+    "gulpease": {"it"},
+    "flesch":   {"it", "en"},
+}
+```
+
+Aggiungere un nuovo indice richiede solo di aggiungere una voce in entrambi i dizionari, senza modificare la logica della funzione principale.
+
+#### La funzione `generate_report`
+
+```python
+def generate_report(indices_to_use, lang, process_all_categories=False, category=None, sub_category=None):
+```
+
+**Parametri:**
+
+| Parametro | Tipo | Descrizione |
+|-----------|------|-------------|
+| `indices_to_use` | `list[str]` oppure `"all"` | Indici da calcolare. `"all"` include tutti quelli registrati. |
+| `lang` | `str` oppure `"all"` | Lingua dei testi (`"it"`, `"en"`, …). `"all"` processa tutte le lingue presenti nel JSON. |
+| `process_all_categories` | `bool` | Se `True`, elabora tutte le categorie del JSON; altrimenti filtra su `category` e `sub_category`. |
+| `category` | `str \| None` | Gruppo (es. `"adult"`, `"children"`). Obbligatorio se `process_all_categories=False`. |
+| `sub_category` | `str \| None` | Sottocategoria (es. `"typical"`). Obbligatorio se `process_all_categories=False`. |
+
+**Comportamento:**
+
+1. Se `lang="all"`, vengono iterate tutte le lingue presenti nel file JSON; i testi vengono raccolti come coppie `(frase, lingua)`.
+2. Per ogni frase viene calcolato solo il sottoinsieme degli indici richiesti che sono compatibili con la lingua di quella frase. Le celle per gli indici non compatibili (es. Gulpease su testi inglesi) vengono lasciate a `N/A`.
+3. Il CSV prodotto contiene sempre una colonna `Lang` che indica la lingua di ogni riga, utile quando si processano più lingue contemporaneamente.
+4. Le colonne degli indici nel CSV sono generate dinamicamente in base agli indici richiesti.
+
+**Esempi d'uso:**
+
+```python
+# Solo Gulpease, testi italiani, singola categoria
+generate_report(
+    indices_to_use=["gulpease"],
+    lang="it",
+    process_all_categories=False,
+    category="adult",
+    sub_category="typical"
+)
+
+# Solo Flesch, testi inglesi, tutte le categorie
+generate_report(
+    indices_to_use=["flesch"],
+    lang="en",
+    process_all_categories=True
+)
+
+# Tutti gli indici, tutte le lingue, tutte le categorie
+generate_report(
+    indices_to_use="all",
+    lang="all",
+    process_all_categories=True
+)
+```
+
+#### Struttura del CSV prodotto
+
+Le colonne del file CSV di output sono:
+
+| Colonna | Descrizione |
+|---------|-------------|
+| `Id` | Numero progressivo della frase |
+| `Lang` | Lingua del testo (`it`, `en`, …) |
+| `Sentence_Text` | Testo della frase analizzata |
+| `Letters` | Numero di lettere alfabetiche |
+| `Words` | Numero di parole |
+| `Num_Sentences` | Numero di frasi rilevate |
+| `gulpease` *(se richiesto)* | Punteggio Gulpease (arrotondato a 2 decimali; `N/A` se lingua incompatibile) |
+| `flesch` *(se richiesto)* | Punteggio Flesch (arrotondato a 2 decimali; `N/A` se lingua incompatibile) |
+
+Il nome del file viene generato automaticamente con il formato:  
+`report_{indici}_{lingua}_{categoria}_{timestamp}.csv`
+
+#### Struttura dei moduli
+
+```
+readability-sindone/
+├── main.py           # Entry point: registro degli indici, caricamento JSON, generate_report
+├── src/
+│   ├── indices.py    # Funzioni di calcolo: gulpease_index, flesch_index
+│   └── utils.py      # Funzioni di supporto: word_count, sentence_count, letter_count,
+│                     #   count_syllables_it, count_syllables_en,
+│                     #   average_words_per_sentence, average_syllables_per_word,
+│                     #   extract_sentences
+└── dictionaries/
+    └── hyph_it_IT.dic  # Dizionario LibreOffice per sillabazione italiana
+```
+
+#### `indices.py`: le funzioni di calcolo
+
+- **`gulpease_index(text)`**: calcola l'indice Gulpease. Non richiede il parametro lingua poiché è definito solo per l'italiano.
+- **`flesch_index(text, lang)`**: calcola l'indice Flesch con la formula appropriata alla lingua. Per `lang="it"` usa i coefficienti adattati all'italiano; per `lang="en"` usa la formula originale di Flesch. Restituisce `None` se il testo non contiene parole o frasi.
