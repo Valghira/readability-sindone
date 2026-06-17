@@ -50,7 +50,7 @@ def flesch_index(text, lang="en"):
     if lang == "it":
         syllables = sum(utils.count_syllables_it(w) for w in text.split())
         avg_syllables_per_word = syllables / words
-        flesch_score = 206 - (0.65 * avg_words_per_sentence) - (0.75 * avg_syllables_per_word)
+        flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
     else:  # English
         syllables = sum(utils.count_syllables_en(w) for w in text.split())
         avg_syllables_per_word = syllables / words
