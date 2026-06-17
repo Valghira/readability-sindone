@@ -56,4 +56,19 @@ def flesch_index(text, lang="en"):
         avg_syllables_per_word = syllables / words
         flesch_score = 206.835 - 1.015 * avg_words_per_sentence - 84.6 * avg_syllables_per_word
 
-    return round(flesch_score, 2)
+    return flesch_score
+
+def gunning_fog_index(text, lang="en"):
+    """
+    Compute the Gunning Fog index.
+    Formula: 0.4 * [(words/sentences) + 100 * (complex_words/words)]
+    Complex words are words with 3 or more syllables.
+    Returns None if text has no words or sentences.
+    """
+    words = utils.word_count(text)
+    sentences = utils.sentence_count(text)
+    if words == 0 or sentences == 0:
+        return None
+    complex_words = utils.count_complex_words(text, lang)
+    score = 0.4 * ((words / sentences) + 100 * (complex_words / words))
+    return score

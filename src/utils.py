@@ -124,9 +124,17 @@ def average_syllables_per_word(text):
     n_words = word_count(text)
     if n_words == 0:
         return None
-    
+
     total_syllables = sum(count_syllables_en(word) for word in words)
     return total_syllables / n_words
+
+def count_complex_words(text, lang="en"):
+    """Return the count of words with 3 or more syllables."""
+    words = text.split()
+    if lang == "it":
+        return sum(1 for w in words if count_syllables_it(w) >= 3)
+    else:
+        return sum(1 for w in words if count_syllables_en(w) >= 3)
 
 # ----------------------------
 # JSON utility

@@ -17,14 +17,16 @@ MAX_SENTENCES = None  # Set to an integer to limit processing, or None to proces
 
 # Maps index name → callable(text, lang) → score
 INDEX_REGISTRY = {
-    "gulpease": lambda text, lang: indices.gulpease_index(text),
-    "flesch":   lambda text, lang: indices.flesch_index(text, lang),
+    "gulpease":    lambda text, lang: indices.gulpease_index(text),
+    "flesch":      lambda text, lang: indices.flesch_index(text, lang),
+    "gunning_fog": lambda text, lang: indices.gunning_fog_index(text, lang),
 }
 
 # Maps index name → set of languages it supports
 INDEX_LANGS = {
-    "gulpease": {"it"},
-    "flesch":   {"it", "en"},
+    "gulpease":    {"it"},
+    "flesch":      {"it", "en"},
+    "gunning_fog": {"it", "en"},
 }
 
 # ----------------------------
@@ -114,5 +116,5 @@ def generate_report(indices_to_use, lang, process_all_categories=False, category
 # ----------------------------
 
 # generate_report(indices_to_use=["gulpease"], lang="it", process_all_categories=False, category="adult", sub_category="typical")
-generate_report(indices_to_use=["flesch"], lang="en", process_all_categories=True)
-# generate_report(indices_to_use="all", lang="all", process_all_categories=True)
+# generate_report(indices_to_use=["flesch"], lang="en", process_all_categories=True)
+generate_report(indices_to_use="all", lang="all", process_all_categories=True)
