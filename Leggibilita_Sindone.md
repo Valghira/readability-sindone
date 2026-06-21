@@ -56,7 +56,9 @@ A differenza dell'indice Gulpease — che usa lettere, parole e frasi — il Fle
 
 La versione italiana utilizza coefficienti diversi, poiché le parole italiane tendono ad avere più sillabe delle inglesi:
 
-\[ F_{it} = 206 - 0.65 \cdot \frac{Parole}{Frasi} - 0.75 \cdot \frac{Sillabe}{Parole} \]
+\[ F_{it} = 206 - 0.65 \cdot \frac{Sillabe}{Parole} - \frac{Parole}{Frasi} \]
+
+> **Nota:** questa è la formulazione del 1972 di Vacca e Franchina, indicata su Wikipedia come la più attendibile per l'italiano in base agli studi del Gruppo Linguistico-Pedagogico Universitario. Esiste anche una revisione del 1986 (\( F_{it} = 217 - 1.3 \cdot \frac{Sillabe}{Parole} - 0.6 \cdot \frac{Parole}{Frasi} \)), non utilizzata in questo progetto. Entrambe le formule sono state riverificate a giugno 2026 contro la fonte ([Wikipedia - Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch)) e corrispondono esattamente all'implementazione in `src/indices.py`.
 
 ### Interpretazione dei valori
 
@@ -314,3 +316,141 @@ readability-sindone/
 
 - **`gulpease_index(text)`**: calcola l'indice Gulpease. Non richiede il parametro lingua poiché è definito solo per l'italiano.
 - **`flesch_index(text, lang)`**: calcola l'indice Flesch con la formula appropriata alla lingua. Per `lang="it"` usa i coefficienti adattati all'italiano; per `lang="en"` usa la formula originale di Flesch. Restituisce `None` se il testo non contiene parole o frasi.
+
+---
+
+## 6. Evoluzione recente: raggruppamento per opera e correzioni di accuratezza
+
+Questa sezione documenta un secondo ciclo di modifiche, successivo alla versione descritta al punto 5.6, motivato da un feedback dei docenti sull'unità di analisi del report e da una verifica sistematica delle formule contro le fonti ufficiali da loro indicate. Viene riportato in dettaglio anche per motivare, nella tesi, le scelte fatte e i limiti rimasti.
+
+### 6.1 Raggruppamento per opera (`extract_works`)
+
+**Motivazione:** i docenti hanno richiesto che gli indici di leggibilità non vengano più calcolati frase per frase, ma su tutte le frasi che compongono la descrizione di una stessa opera del museo, considerate come un unico testo.
+
+Nel file JSON, ogni categoria (es. `data["it"]["adult"]["typical"]`) è una lista di dizionari, dove ogni dizionario ha come chiavi i titoli delle opere e come valori la lista delle frasi che le descrivono:
+
+```json
+"Macchina fotografica di Secondo Pia": [
+    "In questa nicchia è esposta la macchina fotografica...",
+    "Si tratta di un apparecchio appositamente costruito..."
+]
+```
+
+La funzione `extract_sentences()` esistente appiattisce ricorsivamente tutta la struttura in una lista di frasi sciolte, perdendo questo raggruppamento. È stata quindi introdotta una nuova funzione in `src/utils.py`:
+
+```python
+def extract_works(obj, current_title=None):
+    works = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            works.extend(extract_works(value, current_title=key))
+    elif isinstance(obj, list):
+        if obj and all(isinstance(item, str) for item in obj):
+            works.append((current_title, list(obj)))
+        else:
+            for item in obj:
+                works.extend(extract_works(item, current_title=current_title))
+    return works
+```
+
+A differenza di `extract_sentences()`, questa funzione si ferma non appena trova una lista composta interamente da stringhe (cioè le frasi di un'opera) e la etichetta con la chiave del dizionario più vicina che la contiene (il titolo dell'opera).
+
+In `generate_report()` (`main.py`), per ogni opera le frasi vengono unite in due modi distinti:
+- con uno **spazio singolo**, per il testo usato nel calcolo degli indici (`Letters`, `Words`, `Num_Sentences`, Gulpease, Flesch, Gunning Fog) — uno spazio non altera i conteggi basati su punteggiatura;
+- con un **"a capo" (`\n`)**, solo per il valore mostrato nella colonna `Sentence_Text` del CSV, per leggibilità estetica (ogni frase originale su una riga propria all'interno della cella).
+
+È stata aggiunta una colonna `Titolo` al CSV, e la variabile `MAX_SENTENCES` è stata rinominata `MAX_WORKS`, poiché ora limita il numero di opere processate e non più di frasi singole.
+
+**Conflitto rilevato con un'altra parte della tesi:** la prima parte del progetto usa un modello text-to-speech per generare, dallo stesso `content.json`, i file audio riprodotti dal robot Sanbot al museo — un file audio per ogni singola frase, esattamente come funzionava la vecchia unità di analisi "per frase". Con il raggruppamento per opera, gli indici di leggibilità del report non corrispondono più alla granularità realmente percepita dal visitatore tramite Sanbot. Per questo motivo `extract_sentences()` non è stata rimossa: coesiste con `extract_works()` nel codice, così da poter tornare al comportamento per-frase modificando solo `generate_report()`, senza dover recuperare nulla dalla cronologia Git, qualora i docenti richiedano di mantenere (anche) la granularità per-frase.
+
+### 6.2 Verifica delle formule rispetto alle fonti ufficiali
+
+Su richiesta dei docenti, le tre formule implementate sono state confrontate punto per punto con le rispettive pagine di Wikipedia:
+
+- [Indice Gulpease](https://it.wikipedia.org/wiki/Indice_Gulpease)
+- [Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch)
+- [Indice Gunning Fog](https://it.wikipedia.org/wiki/Indice_Gunning_fog)
+
+**Gulpease**: la formula implementata in `gulpease_index()` (`89 + (300·Frasi − 10·Lettere) / Parole`) corrisponde esattamente alla fonte. Nessuna modifica necessaria.
+
+**Flesch**: la formula implementata in `flesch_index()` per l'italiano corrisponde esattamente alla formulazione 1972 di Vacca-Franchina (`206 − 0.65·Sillabe/Parole − Parole/Frasi`), quella indicata dalla fonte come più attendibile. Il *codice* era già corretto; era la documentazione di questo stesso file (sezione 4) a contenere un errore di trascrizione, corretto al punto A in apertura di questa revisione.
+
+**Gunning Fog**: la parte numerica della formula (`0.4·[(Parole/Frasi) + 100·(Parole_complesse/Parole)]`, implementata in `gunning_fog_index()`) corrisponde alla fonte. Mancava invece l'esatta definizione di "parola complessa" — vedi punto 6.3.
+
+### 6.3 Bug: il Gunning Fog non escludeva i nomi propri dal conteggio delle "parole complesse"
+
+**Problema:** secondo la fonte, una "parola complessa" (≥3 sillabe) per il calcolo del Gunning Fog **esclude**:
+- i nomi propri;
+- le parole composte da due parole brevi (1-2 sillabe ciascuna);
+- i verbi di due sillabe che diventano di 3+ sillabe quando coniugati;
+- gli avverbi in "-mente" derivati da una radice di due sillabe.
+
+La funzione `count_complex_words()` in `src/utils.py` contava invece semplicemente ogni parola con ≥3 sillabe, senza alcuna eccezione.
+
+**Perché è un problema rilevante per questo corpus:** i testi del Museo della Sindone contengono moltissimi nomi propri (titoli di opere, personaggi storici, toponimi: "Sìndone", "Secondo Pia", "Torino", "Sebastiano Valfrè"...). Molti di questi hanno 3 o più sillabe, e venivano quindi erroneamente contati come parole complesse, gonfiando artificialmente il punteggio Gunning Fog (un punteggio più alto indica un testo più difficile da leggere).
+
+**Soluzione adottata:** implementare solo l'esclusione dei nomi propri, tramite un'euristica posizionale: una parola che inizia con lettera maiuscola e **non è la prima parola della sua frase** viene trattata come nome proprio ed esclusa dal conteggio.
+
+```python
+def count_complex_words(text, lang="en"):
+    syllable_counter = count_syllables_it if lang == "it" else count_syllables_en
+    complex_count = 0
+    for sentence in re.split(r'[.!?]+', text):
+        for i, word in enumerate(sentence.split()):
+            stripped = word.strip(string.punctuation + "“”‘’")
+            if not stripped:
+                continue
+            if i > 0 and stripped[0].isupper():
+                continue  # trattata come nome proprio
+            if syllable_counter(word) >= 3:
+                complex_count += 1
+    return complex_count
+```
+
+Le altre tre esclusioni (parole composte, verbi coniugati, avverbi in "-mente") non sono state implementate: richiederebbero un'analisi morfologica/NLP che, con euristiche semplici basate solo su regex o conteggio sillabe, rischierebbe di introdurre più falsi positivi/negativi di quanti ne risolva. Questa è una **limitazione nota e documentata** dell'implementazione attuale.
+
+**Verifica:** sul testo di esempio "Macchina fotografica di Secondo Pia", le parole "Secondo" e "Sìndone" non vengono più contate come complesse; il punteggio Gunning Fog scende da 22.71 a 21.17. Sull'intero report (480 righe, tutte le lingue/categorie), il punteggio Gunning Fog è sceso o rimasto invariato in tutti i casi tranne uno, risultato anomalo poi spiegato e risolto al punto 6.4.
+
+### 6.4 Bug: la punteggiatura finale rompeva il conteggio delle sillabe in inglese
+
+**Come è stato scoperto:** investigando l'unico caso in cui, dopo la modifica del punto 6.3, il punteggio Gunning Fog era **aumentato** invece di diminuire (cosa logicamente impossibile se si escludono solo parole, mai se ne aggiungono), è stato individuato un bug preesistente e indipendente.
+
+**Problema:** `count_syllables_en()` cerca la parola nel dizionario CMU (CMUdict) con un confronto esatto. Se alla parola è attaccata la punteggiatura di fine frase (es. `"period."` invece di `"period"`), la chiave non viene trovata nel dizionario, e la funzione ricade su un fallback approssimato (conteggio dei gruppi di vocali), meno preciso:
+
+```
+count_syllables_en("period")   -> 3  (corretto, da CMUdict)
+count_syllables_en("period.")  -> 2  (fallback impreciso, "period." non è una chiave del dizionario)
+```
+
+Questo riguardava **l'ultima parola di ogni frase inglese**, in tutto il progetto, da prima di questa sessione. L'italiano non ne era affetto: la sillabazione tramite `pyphen` (basata su pattern ortografici, non su lookup esatto in un dizionario) gestisce correttamente la punteggiatura finale (`count_syllables_it("formato")` e `count_syllables_it("formato.")` danno entrambe 3).
+
+**Perché l'effetto era piccolo ma non trascurabile:** su un testo lungo, un solo conteggio errato su una parola (l'ultima di ogni frase) ha un peso minimo sulla media. Ma su testi/titoli molto brevi l'effetto si amplifica: il titolo "Saint Francis de Sales." (4 parole, 1 frase) passava da un punteggio Flesch di 75.88 a 97.03 dopo la correzione, perché un solo errore di sillabazione su 4 parole pesa per un quarto della media.
+
+**Soluzione:** `count_syllables_it()` e `count_syllables_en()` ora rimuovono la punteggiatura dalla parola prima di contare le sillabe, centralizzando la correzione così che tutte le funzioni che le usano (`average_syllables_per_word()`, `count_complex_words()`, e quindi `flesch_index()` e `gunning_fog_index()`) ne beneficino automaticamente.
+
+### 6.5 Refactor: eliminazione di logica duplicata in `indices.py`
+
+**Problema:** `flesch_index()` e `gunning_fog_index()` calcolavano manualmente il rapporto `parole/frasi` (e `flesch_index()` anche `sillabe/parole`) invece di richiamare le utility già esistenti `utils.average_words_per_sentence()` e `utils.average_syllables_per_word()`, pensate esattamente per questo scopo.
+
+**Soluzione:** entrambe le funzioni indice ora richiamano le utility condivise. Questo refactor ha anche fatto emergere e corretto un bug latente in `average_syllables_per_word()`: la funzione ignorava il parametro lingua e usava sempre il conteggio sillabe inglese — un bug che non si era mai manifestato perché, prima di questo refactor, la funzione non era richiamata da nessuna parte del codice. Ora accetta un parametro `lang` e seleziona il contatore di sillabe corretto.
+
+**Verifica:** confrontando il report generato prima e dopo questo refactor, riga per riga su tutte le 480 righe, i valori numerici sono risultati identici (il refactor ha eliminato duplicazione senza alterare alcun risultato).
+
+### 6.6 Stato aggiornato della struttura del CSV e dei moduli
+
+Rispetto alla tabella di sezione 5.6, le colonne del CSV prodotto sono ora:
+
+| Colonna | Descrizione |
+|---------|-------------|
+| `Id` | Numero progressivo dell'opera |
+| `Lang` | Lingua del testo (`it`, `en`, …) |
+| `Titolo` | Titolo dell'opera del museo |
+| `Sentence_Text` | Testo dell'opera (frasi unite con "a capo" per leggibilità) |
+| `Letters` | Numero di lettere alfabetiche (sul testo unito con spazio) |
+| `Words` | Numero di parole (sul testo unito con spazio) |
+| `Num_Sentences` | Numero di frasi rilevate nell'opera |
+| `gulpease` *(se richiesto)* | Punteggio Gulpease |
+| `flesch` *(se richiesto)* | Punteggio Flesch |
+| `gunning_fog` *(se richiesto)* | Punteggio Gunning Fog |
+
+`src/utils.py` include ora anche `extract_works()`, una versione corretta e generalizzata di `average_syllables_per_word(text, lang)`, e `count_complex_words()` con esclusione dei nomi propri. `src/indices.py` include anche `gunning_fog_index()`, già presente nella versione corrente del codice ma non ancora documentato in questo file.

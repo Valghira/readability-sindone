@@ -9,7 +9,7 @@ from src import indices
 # Configuration settings
 # ----------------------------
 json_file = "./file_to_process/content.json"
-MAX_SENTENCES = None  # Set to an integer to limit processing, or None to process all
+MAX_WORKS = None  # Set to an integer to limit processing, or None to process all
 
 # ----------------------------
 # Index registry
@@ -59,38 +59,39 @@ def generate_report(indices_to_use, lang, process_all_categories=False, category
 
     langs_to_process = list(data.keys()) if lang == "all" else [lang]
 
-    # Collect (sentence, actual_lang) pairs
-    tagged_sentences = []
+    # Collect (title, analysis_text, display_text, actual_lang) tuples, one per artifact ("opera")
+    tagged_works = []
     for current_lang in langs_to_process:
         if current_lang not in data:
             raise ValueError(f"Language '{current_lang}' not found in the JSON data.")
         if process_all_categories:
             for age_group in data[current_lang]:
                 for cat in data[current_lang][age_group]:
-                    for s in utils.extract_sentences(data[current_lang][age_group][cat]):
-                        tagged_sentences.append((s, current_lang))
+                    for title, sentences in utils.extract_works(data[current_lang][age_group][cat]):
+                        tagged_works.append((title, " ".join(sentences), "\n".join(sentences), current_lang))
         else:
             if category is None or sub_category is None:
                 raise ValueError("Both 'category' and 'sub_category' must be specified if 'process_all_categories' is False.")
-            for s in utils.extract_sentences(data[current_lang][category][sub_category]):
-                tagged_sentences.append((s, current_lang))
+            for title, sentences in utils.extract_works(data[current_lang][category][sub_category]):
+                tagged_works.append((title, " ".join(sentences), "\n".join(sentences), current_lang))
 
-    if MAX_SENTENCES:
-        tagged_sentences = tagged_sentences[:MAX_SENTENCES]
+    if MAX_WORKS:
+        tagged_works = tagged_works[:MAX_WORKS]
 
     results = []
-    for idx, (sentence, current_lang) in enumerate(tagged_sentences, start=1):
+    for idx, (title, analysis_text, display_text, current_lang) in enumerate(tagged_works, start=1):
         row = {
             "Id": idx,
             "Lang": current_lang,
-            "Sentence_Text": sentence,
-            "Letters": utils.letter_count(sentence),
-            "Words": utils.word_count(sentence),
-            "Num_Sentences": utils.sentence_count(sentence),
+            "Title": title,
+            "Sentence_Text": display_text,
+            "Letters": utils.letter_count(analysis_text),
+            "Words": utils.word_count(analysis_text),
+            "Num_Sentences": utils.sentence_count(analysis_text),
         }
         for index_name in indices_to_use:
             if current_lang in INDEX_LANGS[index_name]:
-                score = INDEX_REGISTRY[index_name](sentence, current_lang)
+                score = INDEX_REGISTRY[index_name](analysis_text, current_lang)
                 row[index_name] = round(score, 2) if score is not None else None
             else:
                 row[index_name] = "N/A"
@@ -102,7 +103,7 @@ def generate_report(indices_to_use, lang, process_all_categories=False, category
     cat_label = "all" if process_all_categories else f"{category}_{sub_category}"
     csv_file_path = f"./reports/report_{indices_label}_{lang}_{cat_label}_{timestamp}.csv"
 
-    fieldnames = ["Id", "Lang", "Sentence_Text", "Letters", "Words", "Num_Sentences"] + indices_to_use
+    fieldnames = ["Id", "Lang", "Title", "Sentence_Text", "Letters", "Words", "Num_Sentences"] + indices_to_use
     with open(csv_file_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, quoting=csv.QUOTE_MINIMAL)
         writer.writeheader()
@@ -118,3 +119,4 @@ def generate_report(indices_to_use, lang, process_all_categories=False, category
 # generate_report(indices_to_use=["gulpease"], lang="it", process_all_categories=False, category="adult", sub_category="typical")
 # generate_report(indices_to_use=["flesch"], lang="en", process_all_categories=True)
 generate_report(indices_to_use="all", lang="all", process_all_categories=True)
+# generate_report(indices_to_use="all", lang= "it", process_all_categories= False, category= "adult", sub_category= "typical")

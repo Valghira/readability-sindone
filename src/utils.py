@@ -1,4 +1,5 @@
 import re
+import string
 import pyphen
 import cmudict
 from pathlib import Path
@@ -74,14 +75,20 @@ else:
 
 def count_syllables_it(word):
     """Count syllables for Italian using custom LibreOffice dictionary"""
-    syllables = dic_it.inserted(word).split("-")
+    clean_word = word.strip(string.punctuation + "“”‘’")
+    if not clean_word:
+        return 1
+    syllables = dic_it.inserted(clean_word).split("-")
     return max(len(syllables), 1)
 
 cmu_dict = cmudict.dict()
 
 def count_syllables_en(word):
     """Count syllables for English using CMUdict"""
-    word_lower = word.lower()
+    clean_word = word.strip(string.punctuation + "“”‘’")
+    if not clean_word:
+        return 1
+    word_lower = clean_word.lower()
     if word_lower in cmu_dict:
         # Count vowels in the first pronunciation variant
         return len([ph for ph in cmu_dict[word_lower][0] if ph[-1].isdigit()])
@@ -113,11 +120,12 @@ def average_words_per_sentence(text):
         return None
     return n_words / n_sentences
 
-def average_syllables_per_word(text):
+def average_syllables_per_word(text, lang="en"):
     """
     Calculate the average number of syllables per word in the given text.
 
-    Uses the existing word_count function and counts syllables for each word.
+    Uses the existing word_count function and counts syllables for each word,
+    using the syllable counter appropriate for the given language.
     Returns None if there are no words to avoid division by zero.
     """
     words = text.split()
@@ -125,16 +133,32 @@ def average_syllables_per_word(text):
     if n_words == 0:
         return None
 
-    total_syllables = sum(count_syllables_en(word) for word in words)
+    if lang == "it":
+        total_syllables = sum(count_syllables_it(word) for word in words)
+    else:
+        total_syllables = sum(count_syllables_en(word) for word in words)
     return total_syllables / n_words
 
 def count_complex_words(text, lang="en"):
-    """Return the count of words with 3 or more syllables."""
-    words = text.split()
-    if lang == "it":
-        return sum(1 for w in words if count_syllables_it(w) >= 3)
-    else:
-        return sum(1 for w in words if count_syllables_en(w) >= 3)
+    """
+    Return the count of words with 3 or more syllables, excluding proper nouns.
+
+    A word is treated as a proper noun (and excluded from the count) if it
+    starts with a capital letter and is not the first word of its sentence,
+    per the Gunning Fog "complex word" definition.
+    """
+    syllable_counter = count_syllables_it if lang == "it" else count_syllables_en
+    complex_count = 0
+    for sentence in re.split(r'[.!?]+', text):
+        for i, word in enumerate(sentence.split()):
+            stripped = word.strip(string.punctuation + "“”‘’")
+            if not stripped:
+                continue
+            if i > 0 and stripped[0].isupper():
+                continue  # treat as proper noun
+            if syllable_counter(word) >= 3:
+                complex_count += 1
+    return complex_count
 
 # ----------------------------
 # JSON utility
@@ -155,3 +179,21 @@ def extract_sentences(obj):
     elif isinstance(obj, str):
         sentences.append(obj)
     return sentences
+
+def extract_works(obj, current_title=None):
+    """
+    Recursively walk a nested JSON-like structure and group sentences by
+    the nearest enclosing dict key (the artifact/"opera" title).
+    Returns a list of (title, [sentences]) tuples.
+    """
+    works = []
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            works.extend(extract_works(value, current_title=key))
+    elif isinstance(obj, list):
+        if obj and all(isinstance(item, str) for item in obj):
+            works.append((current_title, list(obj)))
+        else:
+            for item in obj:
+                works.extend(extract_works(item, current_title=current_title))
+    return works

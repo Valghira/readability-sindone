@@ -39,21 +39,14 @@ def flesch_index(text, lang="en"):
     float
         Readability index according to Flesch formula.
     """
-    words = utils.word_count(text)
-    sentences = utils.sentence_count(text)
-    if sentences == 0 or words == 0:
+    avg_words_per_sentence = utils.average_words_per_sentence(text)
+    avg_syllables_per_word = utils.average_syllables_per_word(text, lang)
+    if avg_words_per_sentence is None or avg_syllables_per_word is None:
         return None  # Avoid division by zero
-    
-    avg_words_per_sentence = words / sentences
 
-    # Count syllables for each word depending on language
     if lang == "it":
-        syllables = sum(utils.count_syllables_it(w) for w in text.split())
-        avg_syllables_per_word = syllables / words
         flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
     else:  # English
-        syllables = sum(utils.count_syllables_en(w) for w in text.split())
-        avg_syllables_per_word = syllables / words
         flesch_score = 206.835 - 1.015 * avg_words_per_sentence - 84.6 * avg_syllables_per_word
 
     return flesch_score
@@ -66,9 +59,9 @@ def gunning_fog_index(text, lang="en"):
     Returns None if text has no words or sentences.
     """
     words = utils.word_count(text)
-    sentences = utils.sentence_count(text)
-    if words == 0 or sentences == 0:
+    avg_words_per_sentence = utils.average_words_per_sentence(text)
+    if words == 0 or avg_words_per_sentence is None:
         return None
     complex_words = utils.count_complex_words(text, lang)
-    score = 0.4 * ((words / sentences) + 100 * (complex_words / words))
+    score = 0.4 * (avg_words_per_sentence + 100 * (complex_words / words))
     return score
