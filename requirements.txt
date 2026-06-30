@@ -2,3 +2,4 @@ pyphen
 cmudict
 textstat
 pandas
+openpyxl
