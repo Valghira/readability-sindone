@@ -444,7 +444,7 @@ Rispetto alla tabella di sezione 5.6, le colonne del CSV prodotto sono ora:
 |---------|-------------|
 | `Id` | Numero progressivo dell'opera |
 | `Lang` | Lingua del testo (`it`, `en`, …) |
-| `Titolo` | Titolo dell'opera del museo |
+| `Title` | Titolo dell'opera del museo |
 | `Sentence_Text` | Testo dell'opera (frasi unite con "a capo" per leggibilità) |
 | `Letters` | Numero di lettere alfabetiche (sul testo unito con spazio) |
 | `Words` | Numero di parole (sul testo unito con spazio) |
@@ -454,3 +454,96 @@ Rispetto alla tabella di sezione 5.6, le colonne del CSV prodotto sono ora:
 | `gunning_fog` *(se richiesto)* | Punteggio Gunning Fog |
 
 `src/utils.py` include ora anche `extract_works()`, una versione corretta e generalizzata di `average_syllables_per_word(text, lang)`, e `count_complex_words()` con esclusione dei nomi propri. `src/indices.py` include anche `gunning_fog_index()`, già presente nella versione corrente del codice ma non ancora documentato in questo file.
+
+---
+
+### 6.7 Refactoring di `main.py`: separazione raccolta dati e formato di output, e report Excel
+
+**Motivazione:** l'aggiunta di un secondo formato di output (Excel) ha reso necessario un ulteriore refactoring di `main.py`. Lasciare tutta la logica all'interno della singola funzione `generate_report()` avrebbe significato duplicare il codice di raccolta dati (costruzione di `tagged_works`, risoluzione di `"all"` per lingua e indici, calcolo delle metriche) sia nella funzione CSV sia in quella Excel. Il principio DRY ha portato a estrarre una funzione privata condivisa.
+
+#### Struttura dopo il refactoring
+
+`generate_report()` viene sostituita da tre funzioni:
+
+**`_collect_results(indices_to_use, lang, process_all_categories, category, sub_category)`**
+
+Funzione privata (prefisso `_`, non destinata all'uso diretto dall'esterno) che centralizza tutta la logica di raccolta dati:
+- risolve `"all"` per `indices_to_use` (in tutti gli indici registrati) e per `lang` (in tutte le lingue del JSON);
+- itera le opere con `utils.extract_works()` e costruisce i testi di analisi e di visualizzazione;
+- calcola `Letters`, `Words`, `Num_Sentences` e il valore di ogni indice per ogni opera;
+- restituisce la tupla `(results, indices_to_use, lang, cat_label)` pronta da usare direttamente dalle funzioni di output.
+
+```python
+def _collect_results(indices_to_use, lang, process_all_categories, category, sub_category):
+    if indices_to_use == "all":
+        indices_to_use = list(INDEX_REGISTRY.keys())
+    langs_to_process = list(data.keys()) if lang == "all" else [lang]
+    # ... costruzione tagged_works con extract_works(), calcolo metriche ...
+    cat_label = "all" if process_all_categories else f"{category}_{sub_category}"
+    return results, indices_to_use, lang, cat_label
+```
+
+**`generate_csv_report(indices_to_use, lang, process_all_categories=False, category=None, sub_category=None)`**
+
+Chiama `_collect_results` e scrive l'output con `csv.DictWriter`. Firma e comportamento identici alla vecchia `generate_report()`: produce un file `.csv` con il nome `report_{indici}_{lingua}_{categoria}_{timestamp}.csv`.
+
+**`generate_excel_report(indices_to_use, lang, process_all_categories=False, category=None, sub_category=None)`**
+
+Chiama `_collect_results` e produce un file `.xlsx` con lo stesso nome ma estensione diversa. Descritto in dettaglio nel paragrafo successivo.
+
+**Schema d'uso a fondo di `main.py`:**
+
+```python
+generate_csv_report(indices_to_use="all", lang="it", process_all_categories=False, category="adult", sub_category="typical")
+generate_excel_report(indices_to_use="all", lang="it", process_all_categories=False, category="adult", sub_category="typical")
+```
+
+#### `generate_excel_report`: output in formato Excel
+
+**Dipendenza aggiunta:** `openpyxl` (aggiunto a `requirements.txt`). Pandas è già presente nelle dipendenze ma non viene usato per la scrittura Excel: `openpyxl` usato direttamente dà controllo completo sulla formattazione delle singole celle, che non sarebbe disponibile con `pandas.DataFrame.to_excel()`.
+
+**Formattazione applicata:**
+
+- **Riga header in grassetto** — ogni cella della prima riga ha `Font(bold=True)`.
+- **Colonna `Sentence_Text` con testo a capo** — le celle di questa colonna hanno `Alignment(wrap_text=True, vertical="top")`: i caratteri `\n` inseriti nel testo visualizzato vengono resi come veri a-capo all'interno della cella, senza bisogno di espandere manualmente la riga in Excel/Numbers.
+- **Allineamento verticale `"top"` su tutte le celle** — le righe con `Sentence_Text` multi-riga diventano più alte; l'allineamento verticale in alto mantiene coerenza estetica su tutta la riga.
+- **Larghezze colonne adattate automaticamente** — per ogni colonna si calcola il massimo tra la lunghezza dell'header e quella della riga più lunga nel corpus (per celle multi-riga, si usa la riga interna più lunga). Il valore risultante è cappato a 60 caratteri per evitare colonne esageratamente larghe.
+- **Celle numeriche come numeri nativi Excel** — openpyxl scrive interi e float come tipi numerici nativi (non come stringhe come farebbe `csv.DictWriter`). I valori sono numericamente identici a quelli nel CSV, ma questo consente di usare direttamente su quelle colonne le funzioni di ordinamento, filtro e creazione di grafici di Excel.
+
+```python
+def generate_excel_report(indices_to_use, lang, process_all_categories=False, ...):
+    results, indices_to_use, lang, cat_label = _collect_results(...)
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    bold = Font(bold=True)
+    for col_idx, name in enumerate(fieldnames, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=name)
+        cell.font = bold
+    wrap    = Alignment(wrap_text=True, vertical="top")
+    no_wrap = Alignment(vertical="top")
+    sentence_col = fieldnames.index("Sentence_Text") + 1
+    for row_idx, row in enumerate(results, start=2):
+        for col_idx, name in enumerate(fieldnames, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=row[name])
+            cell.alignment = wrap if col_idx == sentence_col else no_wrap
+    # larghezze automatiche (max contenuto, cappato a 60)
+    ...
+    wb.save(path)
+```
+
+#### Struttura aggiornata dei moduli
+
+```
+readability-sindone/
+├── main.py           # Entry point: INDEX_REGISTRY, INDEX_LANGS, caricamento JSON,
+│                     #   _collect_results, generate_csv_report, generate_excel_report
+├── src/
+│   ├── indices.py    # gulpease_index, flesch_index, gunning_fog_index
+│   └── utils.py      # word_count, sentence_count, letter_count,
+│                     #   count_syllables_it, count_syllables_en,
+│                     #   average_words_per_sentence, average_syllables_per_word(text, lang),
+│                     #   count_complex_words, extract_sentences, extract_works
+├── dictionaries/
+│   └── hyph_it_IT.dic
+└── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl
+```
