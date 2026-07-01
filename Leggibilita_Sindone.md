@@ -547,3 +547,113 @@ readability-sindone/
 │   └── hyph_it_IT.dic
 └── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl
 ```
+
+---
+
+## 7. Interfaccia grafica (GUI)
+
+### 7.1 Motivazione e scelta della libreria
+
+**Obiettivo:** rendere il tool accessibile anche a chi non usa la riga di comando — ricercatori, curatori del museo, collaboratori che ricevono il progetto senza esperienza di terminale.
+
+**Libreria scelta: CustomTkinter.** Le principali alternative sono state valutate e scartate:
+
+- **Tkinter puro** (incluso nella libreria standard Python): escluso per l'aspetto visuale datato su macOS, non adatto a qualcosa da mostrare ai docenti.
+- **PyQt6/PySide6**: API professionale ma complessa, molti concetti da imparare, dipendenza pesante.
+- **Streamlit**: molto elegante ma web-based — apre una scheda del browser, richiede un paradigma completamente diverso (ogni interazione causa un re-run dell'intero script), non adatto a un'app desktop standalone.
+- **CustomTkinter**: wrapper moderno sopra Tkinter che ne mantiene l'API semplice ma aggiunge aspetto contemporaneo (bordi arrotondati, supporto dark/light mode, tema blu). Una sola dipendenza extra (`pip install customtkinter`), documentazione ottima, ideale per chi è alle prime armi con le GUI Python.
+
+**Nota macOS:** Python installato via Homebrew non include il modulo `_tkinter` di default. Prima di usare la GUI è necessario installare il pacchetto Homebrew corrispondente alla versione Python in uso:
+```bash
+brew install python-tk@3.14  # sostituire 3.14 con la propria versione
+```
+
+**Dipendenze aggiunte a `requirements.txt`:** `customtkinter`.
+
+### 7.2 Nuovo strato condiviso: `src/core.py`
+
+L'aggiunta della GUI ha richiesto un ulteriore refactoring architetturale. Il problema: `main.py` caricava il JSON e chiamava le funzioni di report **a livello di modulo** — cioè fuori da qualsiasi funzione, eseguiti immediatamente all'`import`. Se `gui.py` avesse fatto `import main`, quel codice sarebbe stato eseguito come effetto collaterale indesiderato (caricamento JSON e generazione report automatica).
+
+**Soluzione:** tutta la logica di business è stata spostata in un nuovo file `src/core.py`, importabile liberamente sia dalla CLI sia dalla GUI senza effetti collaterali.
+
+Funzioni e costanti esportate da `src/core.py`:
+
+| Simbolo | Descrizione |
+|---------|-------------|
+| `DEFAULT_JSON_PATH` | Path di default al file JSON del corpus |
+| `MAX_WORKS` | Limite opere da processare (None = tutte) |
+| `INDEX_REGISTRY` | Dizionario nome → callable dell'indice |
+| `INDEX_LANGS` | Dizionario nome → lingue supportate |
+| `load_data(json_path)` | Carica e restituisce il JSON |
+| `inspect_json(data)` | Analizza la struttura del corpus → `{lang: {age_group: [sub_cat, ...]}}` |
+| `_collect_results(data, ...)` | Raccoglie i risultati; ora riceve `data` come primo argomento invece di una variabile globale |
+| `generate_csv_report(data, ..., log_fn=print)` | Genera il CSV; `log_fn` sostituisce `print` per reindirizzare il log |
+| `generate_excel_report(data, ..., log_fn=print)` | Genera l'Excel; stessa firma |
+
+`main.py` diventa un thin wrapper di 12 righe con guard `if __name__ == "__main__"`:
+
+```python
+from src.core import load_data, generate_csv_report, generate_excel_report, DEFAULT_JSON_PATH
+
+if __name__ == "__main__":
+    data = load_data(DEFAULT_JSON_PATH)
+    generate_csv_report(data, indices_to_use="all", lang="it", ...)
+    generate_excel_report(data, indices_to_use="all", lang="it", ...)
+```
+
+`python main.py` funziona esattamente come prima — zero regressioni per l'uso da terminale.
+
+### 7.3 Struttura della GUI (`gui.py`)
+
+La GUI è una finestra singola (820×740 px) organizzata in cinque sezioni verticali, ognuna un `CTkFrame` distinto:
+
+**1 — File JSON**
+Campo di testo precompilato con il path al corpus di default, bottone "Sfoglia" (apre un file dialog filtrato su `*.json`). Al caricamento del file, viene chiamata `inspect_json()` e i risultati popolano un riquadro read-only:
+```
+Corpus: 2 lingue  •  it: adult(3 sub-cat), child(3 sub-cat)
+                      en: adult(3 sub-cat), child(3 sub-cat)
+```
+
+**2 — Configurazione** (tre colonne affiancate)
+- *Indici*: un checkbox per ogni indice, generati dinamicamente da `INDEX_REGISTRY.keys()`; bottoni "Tutti"/"Nessuno" per selezione rapida.
+- *Lingua*: radio Tutte / Italiano / Inglese.
+- *Formato output*: checkbox CSV e checkbox Excel (.xlsx), selezionabili indipendentemente.
+
+**3 — Categorie**
+Radio "Tutte le categorie" (default, processa tutto il corpus) oppure "Seleziona:" con due menu a tendina (age_group / sub-categoria) disabilitati di default e abilitati solo se si sceglie "Seleziona:". I valori nei menu si aggiornano automaticamente in base alla lingua selezionata nella sezione 2.
+
+**4 — Bottone "Genera Report"**
+Grande e centrato, viene disabilitato durante la generazione (testo "Generazione in corso…") per prevenire doppi click, e riabilitato al termine.
+
+**5 — Log**
+Riquadro read-only che riceve i messaggi di stato via `log_fn=self._log`, mostrando i path dei file generati e l'esito dell'operazione.
+
+**Footer** — label grigio piccolo fisso in basso: *Sviluppato da Valerio Ghirardotto*.
+
+### 7.4 Comportamento dinamico e future-proofing
+
+- **Cambio JSON:** caricare un file diverso via "Sfoglia" ricalcola la preview del corpus e ripopola tutti i menu di lingua e categoria in tempo reale, senza riavviare l'app.
+- **Checkbox indici generati da codice:** i checkbox sono costruiti iterando `INDEX_REGISTRY.keys()`. Aggiungere un nuovo indice in `src/core.py` fa apparire automaticamente il checkbox corrispondente in GUI senza toccare `gui.py`.
+- **Validazione pre-esecuzione:** se nessun indice o nessun formato è selezionato, il bottone scrive un avviso nel log invece di procedere.
+- **`log_fn` come callback:** `generate_csv_report` e `generate_excel_report` accettano un parametro `log_fn` (default `print`). Da terminale si usa `print`; dalla GUI si passa `self._log`, che scrive nel riquadro di log. In questo modo la stessa funzione funziona sia in modalità CLI che GUI senza codice condizionale.
+
+### 7.5 Struttura aggiornata dei moduli
+
+```
+readability-sindone/
+├── main.py           # CLI thin wrapper (12 righe): importa da src/core,
+│                     #   chiama generate_csv/excel_report sotto __main__
+├── gui.py            # GUI entry point: CustomTkinter app, importa da src/core
+├── src/
+│   ├── core.py       # Business logic condivisa: INDEX_REGISTRY, INDEX_LANGS,
+│   │                 #   load_data, inspect_json, _collect_results,
+│   │                 #   generate_csv_report, generate_excel_report
+│   ├── indices.py    # gulpease_index, flesch_index, gunning_fog_index
+│   └── utils.py      # word_count, sentence_count, letter_count,
+│                     #   count_syllables_it/en, average_words_per_sentence,
+│                     #   average_syllables_per_word(text, lang),
+│                     #   count_complex_words, extract_sentences, extract_works
+├── dictionaries/
+│   └── hyph_it_IT.dic
+└── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl, customtkinter
+```
