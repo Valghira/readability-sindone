@@ -47,7 +47,7 @@ def flesch_index(text, lang="en"):
     if lang == "it":
         flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
     else:  # English
-        flesch_score = 206.835 - 1.015 * avg_words_per_sentence - 84.6 * avg_syllables_per_word
+        flesch_score = 206.835 - (84.6 * avg_syllables_per_word) - (1.015 * avg_words_per_sentence)
 
     return flesch_score
 

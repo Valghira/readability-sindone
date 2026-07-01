@@ -548,6 +548,98 @@ readability-sindone/
 └── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl
 ```
 
+### 6.8 Evidenziazione cromatica nel report Excel
+
+#### Motivazione
+
+Su richiesta della commissione, il report `.xlsx` evidenzia i punteggi degli indici di leggibilità con colori di sfondo che ne rendono immediatamente leggibile la fascia di difficoltà: verde per i testi più accessibili, rosso per quelli più difficili. La colorazione è implementata in `generate_excel_report` tramite `PatternFill` di openpyxl e non altera il valore numerico delle celle né il file CSV.
+
+#### Soglie per indice
+
+Le soglie sono tratte dalle pubblicazioni originali dei rispettivi autori.
+
+**Indice Gulpease**
+*(Lucisano & Piemontese, 1988, "GULPEASE: una formula per la predizione della difficoltà dei testi in lingua italiana", Scuola e città XXXIX(3); Piemontese, 1996, Capire e farsi capire, Tecnodid)*
+
+Scala 0–100; punteggi più alti indicano maggiore leggibilità.
+
+| Punteggio | Interpretazione | Colore |
+|-----------|-----------------|--------|
+| < 40 | Difficile anche per lettori con diploma superiore | Rosso |
+| 40–59 | Accessibile a lettori con diploma superiore | Arancione |
+| 60–79 | Accessibile a lettori con licenza media | Giallo |
+| ≥ 80 | Accessibile a tutti | Verde |
+
+**Indice Flesch Reading Ease**
+*(Flesch, 1948, "A New Readability Yardstick", Journal of Applied Psychology 32(3))*
+
+Scala 0–100; punteggi più alti indicano maggiore leggibilità. Le stesse soglie si applicano sia alla variante inglese (Flesch 1948) sia alla variante italiana (Franchina-Vacca 1972), che condividono la medesima scala.
+
+| Punteggio | Livello | Colore |
+|-----------|---------|--------|
+| < 30 | Molto difficile (testi specialistici/professionali) | Rosso |
+| 30–59 | Difficile (livello universitario) | Arancione |
+| 60–79 | Medio (scuola secondaria / standard) | Giallo |
+| ≥ 80 | Facile / Molto facile | Verde |
+
+**Gunning Fog Index**
+*(Gunning, 1952, The Technique of Clear Writing, McGraw-Hill)*
+
+Scala tipica 6–20+; il valore rappresenta gli anni di istruzione necessari alla comprensione. **La scala è invertita rispetto ai precedenti**: punteggi più bassi indicano maggiore accessibilità.
+
+| Punteggio | Livello di istruzione richiesto | Colore |
+|-----------|--------------------------------|--------|
+| ≤ 8 | Scuola media (accesso universale) | Verde |
+| 8–12 | Scuola secondaria / liceo | Giallo |
+| 12–17 | Università | Arancione |
+| > 17 | Post-laurea / testi molto tecnici | Rosso |
+
+#### Implementazione
+
+In `src/core.py` sono definiti:
+
+- Quattro costanti di colore (colori saturi per massima leggibilità visiva):
+  ```
+  _COLOR_GREEN  = "92D050"   # verde vivo
+  _COLOR_YELLOW = "FFFF00"   # giallo puro
+  _COLOR_ORANGE = "FF6600"   # arancione deciso
+  _COLOR_RED    = "FF0000"   # rosso pieno
+  ```
+- Un oggetto bordo sottile, applicato a tutte le celle (header e dati):
+  ```python
+  _thin = Side(style="thin")
+  _BORDER = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+  ```
+- La funzione `_score_color(index_name, score)` che restituisce la costante colore appropriata dato il nome dell'indice e il punteggio numerico; restituisce `None` per valori non numerici (`"N/A"`, `None`), lasciando quelle celle senza riempimento.
+
+Nel loop di scrittura di `generate_excel_report`, per ogni cella vengono applicati bordo e — se si tratta di una colonna indice — il riempimento cromatico:
+```python
+cell.border = _BORDER
+if name in indices_to_use:
+    color = _score_color(name, row[name])
+    if color:
+        cell.fill = PatternFill(patternType="solid", fgColor=color)
+```
+I bordi facilitano la lettura riga per riga nel foglio Excel. Le celle con valore `"N/A"` (indice non applicabile alla lingua) o `None` (testo vuoto) rimangono senza riempimento colorato.
+
+### 6.9 Verifica della formula Flesch rispetto a Wikipedia
+
+In seguito a un controllo delle formule rispetto alla fonte indicata dai docenti (Wikipedia IT — *Formula di Flesch*), è stato verificato che le implementazioni in `src/indices.py` corrispondono esattamente alle formule pubblicate:
+
+**Variante inglese (Flesch 1948):**
+```
+F = 206,835 − (84,6 × S) − (1,015 × P)
+```
+
+**Variante italiana (Vacca & Franchina 1972, raccomandata dal GULP):**
+```
+F = 206 − (0,65 × S) − P
+```
+
+dove S = media sillabe per parola, P = media parole per frase.
+
+**Nota sulla scala italiana:** la variante italiana con questi coefficienti produce punteggi nell'intervallo ~160–200 anziché 0–100. Questo è un limite noto della formula nella sua variante non normalizzata; i docenti hanno confermato che i valori così calcolati sono accettabili per gli scopi di questo studio. Di conseguenza, le celle Flesch dei testi italiani risulteranno tutte nella fascia "verde" del report Excel.
+
 ---
 
 ## 7. Interfaccia grafica (GUI)

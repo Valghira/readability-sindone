@@ -3,7 +3,8 @@ import csv
 import os
 from datetime import datetime
 import openpyxl
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.styles.borders import Border, Side
 from src import utils
 from src import indices
 
@@ -30,6 +31,50 @@ INDEX_LANGS = {
     "flesch":      {"it", "en"},
     "gunning_fog": {"it", "en"},
 }
+
+# ----------------------------
+# Readability color thresholds (for Excel report)
+# ----------------------------
+_COLOR_GREEN  = "92D050"   # easy / high readability
+_COLOR_YELLOW = "FFFF00"   # medium
+_COLOR_ORANGE = "FF6600"   # difficult
+_COLOR_RED    = "FF0000"   # very difficult / low readability
+
+_thin = Side(style="thin")
+_BORDER = Border(left=_thin, right=_thin, top=_thin, bottom=_thin)
+
+
+def _score_color(index_name, score):
+    """
+    Return the hex fill color for a readability score cell, or None for non-numeric values.
+
+    Gulpease & Flesch: higher = easier  → red < orange < yellow < green
+    Gunning Fog:       lower  = easier  → green < yellow < orange < red (inverted)
+
+    Sources:
+      Gulpease — Lucisano & Piemontese (1988); Piemontese (1996)
+      Flesch   — Flesch (1948), J. Applied Psychology 32(3)
+      Fog      — Gunning (1952), The Technique of Clear Writing
+    """
+    if not isinstance(score, (int, float)):
+        return None
+    if index_name == "gulpease":
+        if score < 40:  return _COLOR_RED
+        if score < 60:  return _COLOR_ORANGE
+        if score < 80:  return _COLOR_YELLOW
+        return _COLOR_GREEN
+    if index_name == "flesch":
+        if score < 30:  return _COLOR_RED
+        if score < 60:  return _COLOR_ORANGE
+        if score < 80:  return _COLOR_YELLOW
+        return _COLOR_GREEN
+    if index_name == "gunning_fog":
+        if score > 17:  return _COLOR_RED
+        if score > 12:  return _COLOR_ORANGE
+        if score > 8:   return _COLOR_YELLOW
+        return _COLOR_GREEN
+    return None
+
 
 # ----------------------------
 # JSON utilities
@@ -191,6 +236,7 @@ def generate_excel_report(data, indices_to_use, lang, process_all_categories=Fal
     for col_idx, name in enumerate(fieldnames, start=1):
         cell = ws.cell(row=1, column=col_idx, value=name)
         cell.font = bold
+        cell.border = _BORDER
 
     wrap = Alignment(wrap_text=True, vertical="top")
     no_wrap = Alignment(vertical="top")
@@ -200,6 +246,11 @@ def generate_excel_report(data, indices_to_use, lang, process_all_categories=Fal
         for col_idx, name in enumerate(fieldnames, start=1):
             cell = ws.cell(row=row_idx, column=col_idx, value=row[name])
             cell.alignment = wrap if col_idx == sentence_col else no_wrap
+            cell.border = _BORDER
+            if name in indices_to_use:
+                color = _score_color(name, row[name])
+                if color:
+                    cell.fill = PatternFill(patternType="solid", fgColor=color)
 
     for col_idx, name in enumerate(fieldnames, start=1):
         col_letter = openpyxl.utils.get_column_letter(col_idx)
