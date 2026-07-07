@@ -26,7 +26,7 @@ Fonti:
 L'indice Gulpease è stato sviluppato dall'Università di Roma "La Sapienza" ed è ottimizzato per la lingua italiana.  
 Si calcola con la formula:
 
-\[ G = 89 + \frac{300 \cdot Frasi - 10 \cdot Lettere}{Parole} \]
+$$G = 89 + \frac{300 \cdot Frasi - 10 \cdot Lettere}{Parole}$$
 
 Dove:
 - **Frasi** = numero di frasi nel testo (identificate tramite punteggiatura: ., !, ?)
@@ -50,15 +50,15 @@ A differenza dell'indice Gulpease — che usa lettere, parole e frasi — il Fle
 
 ### Formula per l'inglese
 
-\[ F_{en} = 206.835 - 1.015 \cdot \frac{Parole}{Frasi} - 84.6 \cdot \frac{Sillabe}{Parole} \]
+$$F_{en} = 206.835 - 1.015 \cdot \frac{Parole}{Frasi} - 84.6 \cdot \frac{Sillabe}{Parole}$$
 
 ### Formula adattata per l'italiano
 
 La versione italiana utilizza coefficienti diversi, poiché le parole italiane tendono ad avere più sillabe delle inglesi:
 
-\[ F_{it} = 206 - 0.65 \cdot \frac{Sillabe}{Parole} - \frac{Parole}{Frasi} \]
+$$F_{it} = 206 - 0.65 \cdot \frac{Sillabe}{Parole} - \frac{Parole}{Frasi}$$
 
-> **Nota:** questa è la formulazione del 1972 di Vacca e Franchina, indicata su Wikipedia come la più attendibile per l'italiano in base agli studi del Gruppo Linguistico-Pedagogico Universitario. Esiste anche una revisione del 1986 (\( F_{it} = 217 - 1.3 \cdot \frac{Sillabe}{Parole} - 0.6 \cdot \frac{Parole}{Frasi} \)), non utilizzata in questo progetto. Entrambe le formule sono state riverificate a giugno 2026 contro la fonte ([Wikipedia - Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch)) e corrispondono esattamente all'implementazione in `src/indices.py`.
+> **Nota:** questa è la formulazione del 1972 di Vacca e Franchina, indicata su Wikipedia come la più attendibile per l'italiano in base agli studi del Gruppo Linguistico-Pedagogico Universitario. Esiste anche una revisione del 1986 ($F_{it} = 217 - 1.3 \cdot \frac{Sillabe}{Parole} - 0.6 \cdot \frac{Parole}{Frasi}$), non utilizzata in questo progetto. Entrambe le formule sono state riverificate a giugno 2026 contro la fonte ([Wikipedia - Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch)) e corrispondono esattamente all'implementazione in `src/indices.py`.
 
 ### Interpretazione dei valori
 
