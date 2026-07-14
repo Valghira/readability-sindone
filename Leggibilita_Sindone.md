@@ -147,7 +147,7 @@ Il conteggio delle frasi è un aspetto cruciale per il calcolo dell'indice Gulpe
 
 **Soluzione con la nuova funzione `refined_sentence_count`:**
 - Implementa una logica più sofisticata per distinguere tra punti che terminano effettivamente una frase e quelli che fanno parte di abbreviazioni o numeri.
-- Utilizza espressioni regolari avanzate o librerie di NLP per migliorare la segmentazione.
+- Utilizza espressioni regolari avanzate: rimuove temporaneamente le abbreviazioni comuni (Sig., Dott., Prof., Dr., Avv., Ing., Cav.) con `re.sub`, poi conta i gruppi di punteggiatura terminale `[.!?]+` con `re.findall`. Non utilizza librerie NLP esterne.
 - Garantisce un conteggio più affidabile e aderente alla realtà del testo, migliorando così la precisione del calcolo dell'indice Gulpease.
 
 ---
