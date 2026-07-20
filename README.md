@@ -106,3 +106,15 @@ L'interfaccia è organizzata in quattro pannelli:
 2. **Configurazione** — selezione degli indici da calcolare, della lingua (`Tutte`, `Italiano`, `Inglese`) e del formato di output (`CSV`, `Excel` o entrambi).
 3. **Categorie** — scelta tra tutte le categorie disponibili nel corpus o una specifica combinazione gruppo/sottocategoria, con i valori popolati dinamicamente in base al file caricato.
 4. **Esegui** — avvia l'analisi; il pannello di log in basso mostra i percorsi dei file generati al termine dell'elaborazione.
+
+---
+
+## Limiti e sviluppi futuri
+
+**Lingue supportate** — Il corpus attuale contiene testi in italiano e inglese; le opzioni di lingua nell'interfaccia grafica rispecchiano questa composizione. Aggiungere nuove lingue richiederebbe di estendere il corpus JSON e la logica di sillabazione in `src/utils.py`.
+
+**Flesch italiano (Franchina-Vacca)** — La formula originale prevede il conteggio delle sillabe su un campione di 100 parole consecutive. Poiché la grande maggioranza dei testi del corpus ha meno di 100 parole, l'implementazione attuale usa la media delle sillabe per parola in luogo del campione, rappresentando un'approssimazione rispetto alla specifica originale. *(Fonte: [Wikipedia — Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch))*
+
+**Gunning Fog** — La specifica originale esclude dal conteggio delle "parole complesse" quattro categorie: nomi propri, parole composte, verbi coniugati con ≥3 sillabe e avverbi in "-mente". L'implementazione attuale applica solo la prima esclusione, tramite un'euristica posizionale (parola maiuscola non a inizio frase). Le restanti tre richiederebbero un'analisi morfologica — distinguere una parola composta da una semplice, o un avverbio in "-mente" dalla radice corrispondente, non è possibile contando solo le sillabe o con espressioni regolari, senza ricorrere a un dizionario grammaticale o a una libreria NLP. Questa è una limitazione nota dell'implementazione attuale. *(Fonti: [Wikipedia — Indice Gunning Fog](https://it.wikipedia.org/wiki/Indice_Gunning_fog); Gunning, R., 1952, *The Technique of Clear Writing*, McGraw-Hill)*
+
+**Sviluppi futuri** — Tra le estensioni possibili: la scelta della cartella di destinazione dei report dalla GUI (attualmente fissa a `./reports/`).
