@@ -749,3 +749,41 @@ readability-sindone/
 │   └── hyph_it_IT.dic
 └── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl, customtkinter
 ```
+
+### 7.6 Evidenziazione cromatica dei messaggi di errore nel log
+
+**Motivazione:** i docenti hanno segnalato che nel pannello Log tutti i messaggi — informativi, avvertimenti ed errori — avevano lo stesso colore, rendendo difficile accorgersi a colpo d'occhio di un problema bloccante.
+
+**Approccio tecnico:** `ctk.CTkTextbox` è un wrapper sopra il widget nativo `tkinter.Text`, accessibile tramite l'attributo `._textbox`. Il widget `tkinter.Text` supporta i *tag*: etichette associate a intervalli di testo a cui possono essere applicati stili come colore del testo, grassetto o sottofondo. Tramite `tag_configure` si definisce lo stile di un tag; tramite `tag_add` lo si applica a un intervallo di caratteri già inseriti. Questo meccanismo permette di colorare selettivamente singole righe del log senza dover cambiare il widget o introdurre widget aggiuntivi.
+
+**Classificazione dei messaggi:** i messaggi critici nel codice sono già riconoscibili dal prefisso con cui iniziano:
+- `"ERRORE"` — errori bloccanti (es. file JSON non trovato, eccezione durante la generazione del report)
+- `"ATTENZIONE"` — avvertimenti che impediscono l'esecuzione (es. nessun indice selezionato, nessun formato di output scelto)
+
+Il rilevamento avviene con `msg.startswith("ERRORE") or msg.startswith("ATTENZIONE")` nel metodo `_log`.
+
+**Modifiche a `gui.py`:**
+
+In `_build_log_section`, dopo la creazione di `self.log_box`, viene configurato il tag `"error"` con colore rosso (#E53935, rosso Material Design):
+
+```python
+self.log_box._textbox.tag_configure("error", foreground="#E53935")
+```
+
+In `_log`, la posizione `start` viene catturata *prima* dell'inserimento del testo e `end` *dopo*; il tag viene applicato all'intervallo `[start, end]` solo se il messaggio è un errore o avvertimento:
+
+```python
+def _log(self, msg):
+    is_error = msg.startswith("ERRORE") or msg.startswith("ATTENZIONE")
+    self.log_box.configure(state="normal")
+    start = self.log_box._textbox.index("end-1c")
+    self.log_box.insert("end", msg + "\n")
+    if is_error:
+        end = self.log_box._textbox.index("end-1c")
+        self.log_box._textbox.tag_add("error", start, end)
+    self.log_box.see("end")
+    self.log_box.configure(state="disabled")
+    self.update_idletasks()
+```
+
+**Risultato:** i messaggi `ERRORE` e `ATTENZIONE` appaiono in rosso nel pannello Log; i messaggi informativi (`JSON caricato: ...`, `Fatto.`) restano nel colore predefinito del testo.

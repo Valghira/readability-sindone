@@ -160,14 +160,20 @@ class App(ctk.CTk):
         )
         self.log_box = ctk.CTkTextbox(frame, state="disabled", font=ctk.CTkFont(size=12))
         self.log_box.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
+        self.log_box._textbox.tag_configure("error", foreground="#E53935")
 
     # ------------------------------------------------------------------
     # Event handlers
     # ------------------------------------------------------------------
 
     def _log(self, msg):
+        is_error = msg.startswith("ERRORE") or msg.startswith("ATTENZIONE")
         self.log_box.configure(state="normal")
+        start = self.log_box._textbox.index("end-1c")
         self.log_box.insert("end", msg + "\n")
+        if is_error:
+            end = self.log_box._textbox.index("end-1c")
+            self.log_box._textbox.tag_add("error", start, end)
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
         self.update_idletasks()
