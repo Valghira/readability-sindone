@@ -86,9 +86,9 @@ class App(ctk.CTk):
 
         btn_row = ctk.CTkFrame(idx_frame, fg_color="transparent")
         btn_row.pack(anchor="w", pady=(8, 0))
-        ctk.CTkButton(btn_row, text="Tutti", width=70, height=26,
+        ctk.CTkButton(btn_row, text="Seleziona tutti", width=70, height=26,
                       command=lambda: [v.set(True) for v in self.index_vars.values()]).pack(side="left", padx=(0, 4))
-        ctk.CTkButton(btn_row, text="Nessuno", width=70, height=26,
+        ctk.CTkButton(btn_row, text="Deseleziona tutti", width=70, height=26,
                       command=lambda: [v.set(False) for v in self.index_vars.values()]).pack(side="left")
 
         # --- Language ---
@@ -97,10 +97,19 @@ class App(ctk.CTk):
 
         ctk.CTkLabel(lang_frame, text="Lingua", font=ctk.CTkFont(size=13)).pack(anchor="w", pady=(0, 4))
 
-        self.lang_var = ctk.StringVar(value="all")
-        for val, label in [("all", "Tutte"), ("it", "Italiano"), ("en", "Inglese")]:
-            ctk.CTkRadioButton(lang_frame, text=label, variable=self.lang_var,
-                               value=val, command=self._on_lang_change).pack(anchor="w", pady=2)
+        self.lang_vars = {}
+        for val, label in [("it", "Italiano"), ("en", "Inglese")]:
+            var = ctk.BooleanVar(value=True)
+            self.lang_vars[val] = var
+            ctk.CTkCheckBox(lang_frame, text=label, variable=var,
+                            command=self._on_lang_change).pack(anchor="w", pady=2)
+
+        lang_btn_row = ctk.CTkFrame(lang_frame, fg_color="transparent")
+        lang_btn_row.pack(anchor="w", pady=(8, 0))
+        ctk.CTkButton(lang_btn_row, text="Seleziona tutti", width=70, height=26,
+                      command=lambda: [v.set(True) for v in self.lang_vars.values()]).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(lang_btn_row, text="Deseleziona tutti", width=70, height=26,
+                      command=lambda: [v.set(False) for v in self.lang_vars.values()]).pack(side="left")
 
         # --- Format ---
         fmt_frame = ctk.CTkFrame(frame, fg_color="transparent")
@@ -112,6 +121,13 @@ class App(ctk.CTk):
         self.fmt_excel = ctk.BooleanVar(value=True)
         ctk.CTkCheckBox(fmt_frame, text="CSV", variable=self.fmt_csv).pack(anchor="w", pady=2)
         ctk.CTkCheckBox(fmt_frame, text="Excel (.xlsx)", variable=self.fmt_excel).pack(anchor="w", pady=2)
+
+        fmt_btn_row = ctk.CTkFrame(fmt_frame, fg_color="transparent")
+        fmt_btn_row.pack(anchor="w", pady=(8, 0))
+        ctk.CTkButton(fmt_btn_row, text="Seleziona tutti", width=70, height=26,
+                      command=lambda: [self.fmt_csv.set(True), self.fmt_excel.set(True)]).pack(side="left", padx=(0, 4))
+        ctk.CTkButton(fmt_btn_row, text="Deseleziona tutti", width=70, height=26,
+                      command=lambda: [self.fmt_csv.set(False), self.fmt_excel.set(False)]).pack(side="left")
 
     def _build_category_section(self):
         frame = ctk.CTkFrame(self)
@@ -166,6 +182,9 @@ class App(ctk.CTk):
     # Event handlers
     # ------------------------------------------------------------------
 
+    def _selected_langs(self):
+        return [lang for lang, var in self.lang_vars.items() if var.get()]
+
     def _log(self, msg):
         is_error = msg.startswith("ERRORE") or msg.startswith("ATTENZIONE")
         self.log_box.configure(state="normal")
@@ -210,15 +229,12 @@ class App(ctk.CTk):
         self.corpus_info.configure(state="disabled")
 
     def _update_category_menus(self):
-        lang = self.lang_var.get()
-        if lang == "all":
-            merged = {}
-            for groups in self.structure.values():
-                for grp, subs in groups.items():
-                    merged.setdefault(grp, set()).update(subs)
-            cats = sorted(merged.keys())
-        else:
-            cats = sorted(self.structure.get(lang, {}).keys())
+        selected = self._selected_langs()
+        merged = {}
+        for lang in (selected if selected else self.structure.keys()):
+            for grp, subs in self.structure.get(lang, {}).items():
+                merged.setdefault(grp, set()).update(subs)
+        cats = sorted(merged.keys())
 
         if cats:
             self.cat_menu.configure(values=cats)
@@ -239,13 +255,10 @@ class App(ctk.CTk):
         self.subcat_menu.configure(state=state)
 
     def _on_cat_select(self, selected_cat):
-        lang = self.lang_var.get()
+        selected = self._selected_langs()
         subs: set = set()
-        if lang == "all":
-            for groups in self.structure.values():
-                subs.update(groups.get(selected_cat, []))
-        else:
-            subs = set(self.structure.get(lang, {}).get(selected_cat, []))
+        for lang in (selected if selected else self.structure.keys()):
+            subs.update(self.structure.get(lang, {}).get(selected_cat, []))
 
         subs_list = sorted(subs)
         if subs_list:
@@ -269,7 +282,11 @@ class App(ctk.CTk):
             self._log("ATTENZIONE: seleziona almeno un formato di output (CSV o Excel).")
             return
 
-        lang = self.lang_var.get()
+        selected_langs = self._selected_langs()
+        if not selected_langs:
+            self._log("ATTENZIONE: seleziona almeno una lingua.")
+            return
+        lang = "all" if set(selected_langs) == set(self.lang_vars.keys()) else selected_langs[0]
         process_all = self.cat_mode_var.get() == "all"
         category = None if process_all else self.cat_menu.get()
         sub_category = None if process_all else self.subcat_menu.get()
