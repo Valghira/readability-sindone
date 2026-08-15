@@ -16,8 +16,6 @@ readability-sindone/
 │   └── utils.py             # Metriche di testo: parole, frasi, lettere, sillabe
 ├── file_to_process/
 │   └── content.json         # Corpus: lang → age_group → categoria → opere → frasi
-├── dictionaries/
-│   └── hyph_it_IT.dic       # Dizionario LibreOffice per la sillabazione italiana
 └── reports/                 # Report generati (esclusi da git)
 ```
 
@@ -32,7 +30,7 @@ Il registro degli indici in `src/core.py` separa le formule (`INDEX_REGISTRY`) d
 
 | Pacchetto | Uso |
 |---|---|
-| `pyphen` | Sillabazione italiana tramite dizionario LibreOffice |
+| `pyphen` | Sillabazione italiana tramite dizionario integrato (`it_IT`) |
 | `cmudict` | Sillabazione inglese tramite CMU Pronouncing Dictionary |
 | `textstat` | Utilità di supporto per metriche testuali |
 | `pandas` | Manipolazione dati tabellari |

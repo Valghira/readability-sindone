@@ -2,7 +2,6 @@ import re
 import string
 import pyphen
 import cmudict
-from pathlib import Path
 # ----------------------------
 # Utility functions for readability metrics
 # ----------------------------
@@ -63,18 +62,10 @@ def letter_count(text):
     """Return the number of alphabetic characters (letters) in the text."""
     return sum(1 for char in text if char.isalpha())
 
-# pyphen dictionaries
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-ITALIAN_HYPHEN_DICT_PATH = PROJECT_ROOT / "dictionaries" / "hyph_it_IT.dic"
-
-if ITALIAN_HYPHEN_DICT_PATH.exists():
-    dic_it = pyphen.Pyphen(filename=str(ITALIAN_HYPHEN_DICT_PATH))
-else:
-    dic_it = pyphen.Pyphen(lang="it_IT")
+dic_it = pyphen.Pyphen(lang="it_IT", left=1)
 
 def count_syllables_it(word):
-    """Count syllables for Italian using custom LibreOffice dictionary"""
+    """Count syllables for Italian using Pyphen's built-in it_IT dictionary with left=1."""
     clean_word = word.strip(string.punctuation + "“”‘’")
     if not clean_word:
         return 1

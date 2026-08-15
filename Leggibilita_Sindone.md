@@ -74,7 +74,7 @@ $$F_{it} = 206 - 0.65 \cdot \frac{Sillabe}{Parole} - \frac{Parole}{Frasi}$$
 
 Per il conteggio delle sillabe vengono usati due approcci distinti in base alla lingua:
 
-- **Italiano**: si utilizza il dizionario di sillabazione **LibreOffice** (`hyph_it_IT.dic`) tramite la libreria `pyphen`. Se il dizionario personalizzato è presente nella cartella `dictionaries/`, viene usato quello; altrimenti si utilizza il dizionario predefinito di pyphen per l'italiano.
+- **Italiano**: si utilizza la libreria `pyphen` con il dizionario integrato per l'italiano (`lang="it_IT"`) e il parametro `left=1`. Il significato di questo parametro, la distinzione tra sillabazione linguistica e ifenazione tipografica e le verifiche che hanno portato a questa configurazione sono documentati nella sezione 7.7.
 - **Inglese**: si utilizza il **CMUdict** (Carnegie Mellon University Pronouncing Dictionary), che fornisce le trascrizioni fonetiche delle parole e permette di contare le sillabe contando i fonemi vocalici. Per le parole non presenti nel dizionario è previsto un fallback basato sul conteggio dei gruppi vocalici.
 
 Fonti:
@@ -199,15 +199,15 @@ def generate_report(data, output_file):
 ### 5.5 Commenti generali sulle versioni e l'evoluzione
 
 - Le funzioni sono modulari e facilmente estendibili.
-- La logica attuale considera una frase come sequenza terminata da `.`, `!`, `?`, ma la funzione `sentence_count` migliora questa definizione con regole più accurate (gestione abbreviazioni, ellissi, punteggiatura multipla).
+- La logica attuale considera una frase come sequenza terminata da `.`, `!`, `?`, ma la funzione `refined_sentence_count` (successivamente rinominata `sentence_count`) migliora questa definizione con regole più accurate (gestione abbreviazioni, ellissi, punteggiatura multipla).
 - Il sistema può essere facilmente adattato per limitare il numero di frasi analizzate, utile in vista di una futura interfaccia GUI.
 - La conservazione delle versioni precedenti nel documento permette di tracciare l'evoluzione metodologica e di giustificare le scelte tecniche nel lavoro di tesi.
 
 ---
 
-### 5.6 Versione attuale: architettura multi-indice e multi-lingua
+### 5.6 Prima versione multi-indice e multi-lingua
 
-Questa è la versione corrente del sistema. Introduce il supporto a più indici di leggibilità e più lingue all'interno di un'unica funzione di generazione report, eliminando la dipendenza da una singola formula fissa.
+Questa è la versione raggiunta al termine di questa fase del progetto. Introduce il supporto a più indici di leggibilità e più lingue all'interno di un'unica funzione di generazione report, eliminando la dipendenza da una singola formula fissa.
 
 #### Architettura: registro degli indici
 
@@ -745,8 +745,6 @@ readability-sindone/
 │                     #   count_syllables_it/en, average_words_per_sentence,
 │                     #   average_syllables_per_word(text, lang),
 │                     #   count_complex_words, extract_sentences, extract_works
-├── dictionaries/
-│   └── hyph_it_IT.dic
 └── requirements.txt  # pyphen, cmudict, textstat, pandas, openpyxl, customtkinter
 ```
 
@@ -787,3 +785,86 @@ def _log(self, msg):
 ```
 
 **Risultato:** i messaggi `ERRORE` e `ATTENZIONE` appaiono in rosso nel pannello Log; i messaggi informativi (`JSON caricato: ...`, `Fatto.`) restano nel colore predefinito del testo.
+
+### 7.7 Verifica e perfezionamento della sillabazione italiana
+
+#### Contesto
+
+Durante lo sviluppo era stato inserito nella cartella `dictionaries/` un file `hyph_it_IT.dic` prelevato dal repository ufficiale di LibreOffice, nell'ipotesi che disporre di un dizionario di sillabazione esplicito e fisicamente presente nel progetto offrisse un controllo maggiore rispetto al dizionario integrato in pyphen. Il codice corrispondente in `src/utils.py` caricava il file locale se presente, altrimenti ricadeva sul dizionario bundled:
+
+```python
+if ITALIAN_HYPHEN_DICT_PATH.exists():
+    dic_it = pyphen.Pyphen(filename=str(ITALIAN_HYPHEN_DICT_PATH))
+else:
+    dic_it = pyphen.Pyphen(lang="it_IT")
+```
+
+#### Verifica dell'equivalenza del dizionario locale
+
+Un confronto diretto tra i due file ha mostrato che `hyph_it_IT.dic` era **byte per byte identico** al dizionario italiano già distribuito con pyphen (stesso hash MD5, stessa dimensione: 2308 byte). Il repository di LibreOffice e il pacchetto pyphen usano la stessa sorgente per i dizionari di sillabazione. La copia locale non offriva quindi alcun vantaggio rispetto all'uso diretto di `pyphen.Pyphen(lang="it_IT")`.
+
+Di conseguenza, il file locale e la relativa logica di caricamento sono stati rimossi: la cartella `dictionaries/` è ora vuota. Le costanti `ITALIAN_HYPHEN_DICT_PATH` e `PROJECT_ROOT`, l'import `from pathlib import Path` e il blocco `if/else` sono stati eliminati da `src/utils.py`.
+
+#### Pyphen: sillabazione linguistica e ifenazione tipografica
+
+Questa verifica ha spostato l'attenzione sul vero elemento rilevante per l'accuratezza del conteggio: non il *contenuto* del dizionario, ma il *modo* in cui pyphen lo utilizza. Per capire il problema individuato, è utile chiarire cosa fa pyphen e come funzionano i parametri che lo governano.
+
+**Che cosa fa pyphen.** Pyphen è una libreria Python che calcola i punti in cui una parola può essere divisa tra due righe — un'operazione che in tipografia si chiama *ifenazione* (in inglese *hyphenation*). Per farlo, pyphen legge dizionari in formato LibreOffice/TeX che contengono *pattern linguistici*: regole derivate dalla fonetica e dalla morfologia della lingua. Per l'italiano, questi pattern codificano le regole della sillabazione: dove separare le sillabe, dove si trovano dittonghi, dove si trovano iati. Internamente, per ogni parola il dizionario genera un insieme di *posizioni* — indici della stringa — in corrispondenza delle quali è lecito inserire un trattino.
+
+**Sillabazione linguistica e ifenazione tipografica: una distinzione importante.** Il punto di separazione linguisticamente corretto e quello tipograficamente accettabile non coincidono sempre. In linguistica, `opera` si divide in tre sillabe: **o – pe – ra**. La prima sillaba è la singola vocale iniziale "o". In tipografia, però, spezzare una parola lasciando un solo carattere a inizio o fine riga è considerato esteticamente indesiderabile e viene evitato. Un sistema tipografico non scriverebbe `o-` a fine riga, saltando quel punto e usando il successivo: `ope-ra` anziché `o-pe-ra`.
+
+Pyphen è nato per uso tipografico, e i suoi valori predefiniti riflettono questa origine. Il filtro che produce questo comportamento è controllato dai parametri `left` e `right`.
+
+**Il parametro `left`.** Dopo che i pattern del dizionario hanno generato tutti i punti di separazione linguisticamente validi, pyphen li filtra con questa regola: viene mantenuto solo un punto di posizione `i` se `i >= left`. In altre parole, `left` impone una lunghezza minima per il primo segmento della parola (i caratteri che precedono il primo trattino). Con il valore predefinito `left=2`, la posizione 1 — che lascerebbe un solo carattere nel primo segmento — viene scartata. Per `opera`, il dizionario genera le posizioni {1, 3}: con `left=2`, la posizione 1 viene filtrata e rimane solo la 3, producendo `ope-ra` invece di `o-pe-ra`.
+
+**Il parametro `right`.** In modo simmetrico, `right` impone una lunghezza minima per l'ultimo segmento (i caratteri dopo l'ultimo trattino): viene mantenuto solo un punto di posizione `i` se `i <= len(word) - right`. Con `right=2` (valore predefinito), non è ammesso un segmento finale di un solo carattere. Su parole italiane che terminano in consonante o in sequenze di più lettere, questo vincolo non ha effetti pratici; lo stesso vale per il corpus analizzato: come verificato sperimentalmente, `right=2` e `right=1` producono risultati identici su tutte le 584 parole italiane del corpus.
+
+> **Nota tecnica.** pyphen ignora esplicitamente le direttive `LEFTHYPHENMIN` e `RIGHTHYPHENMIN` eventualmente presenti nel file dizionario (sono nella tupla `ignored` del codice sorgente). I valori di `left` e `right` dipendono esclusivamente dai parametri del costruttore `Pyphen(...)`.
+
+**Perché `left=2` causa errori nel conteggio delle sillabe.** Pyphen viene usato nel progetto non per spezzare parole a fine riga, ma per stimare il numero di sillabe ai fini del calcolo degli indici di leggibilità. Quando `left=2` scarta il punto di separazione linguisticamente corretto dopo la vocale iniziale, il numero di segmenti restituiti da `inserted()` è inferiore di 1 rispetto al numero reale di sillabe. Questo vale sistematicamente per tutte le parole italiane che iniziano con una singola vocale seguita da consonante: `era`, `una`, `origini`, `esposto`, `edizione`, `opera`, e molte altre.
+
+**Esempio concreto.** La parola `opera` ha tre sillabe fonologiche: o – pe – ra. Il dizionario genera i punti di separazione nelle posizioni {1, 3}.
+
+| Configurazione | Punti ammessi | Risultato di `inserted()` | Sillabe contate |
+|---|---|---|---|
+| `left=2` (precedente) | solo {3} (pos. 1 esclusa) | `ope-ra` | **2** — errato |
+| `left=1` (attuale) | {1, 3} | `o-pe-ra` | **3** ✓ |
+
+**Perché `left=1` è la configurazione corretta per il nostro scopo.** Impostando `left=1`, pyphen ammette punti di separazione anche dopo il primo carattere. Il dizionario contiene già il punto fonologicamente corretto dopo la vocale iniziale: `left=1` smette semplicemente di filtrarlo. Non vengono modificati i pattern linguistici del dizionario né aggiunte nuove regole. Viene solo rimosso un vincolo tipografico che era privo di senso nel contesto del conteggio delle sillabe.
+
+#### Test comparativo
+
+Il confronto è stato condotto su 584 parole italiane uniche estratte dal corpus, confrontando il conteggio prodotto da pyphen con un riferimento indipendente (nuclei vocalici): una parola con N gruppi vocalici separati da consonanti ha N sillabe, nella misura in cui non intervengano dittonghi o iati.
+
+| Configurazione | Concordanze con riferimento euristico | Concordanza (%) |
+|---|---|---|
+| Precedente (`left=2`) | 533 / 584 | 91,3% |
+| Attuale (`left=1`) | 577 / 584 | 98,8% |
+
+Le percentuali misurano la concordanza con il metodo dei nuclei vocalici, non l'accuratezza assoluta di pyphen: come mostrato nell'analisi degli errori residui, alcune discrepanze non sono errori di pyphen ma limiti del riferimento euristico (dittonghi/iati non distinti, nomi propri stranieri). Il passaggio dal 91,3% al 98,8% costituisce comunque una forte evidenza sperimentale del miglioramento sul corpus analizzato.
+
+La configurazione `left=1` corregge 45 parole — tutte inizianti con vocale — e introduce una sola regressione: il numero romano `XVI`, che con `left=1` viene diviso come `X-VI` (2 segmenti) pur avendo un solo nucleo vocalico. Per ora non è stata implementata alcuna gestione speciale dei numeri romani.
+
+Tra i 7 errori residui, tre non sono errori reali di pyphen: `savoia` (sa–vo–ia), `telaio` (te–la–io) e `distribuiti` (di–stri–bu–i–ti) sono sillabati correttamente da pyphen, ma il riferimento basato sui nuclei vocalici li sottostima perché non distingue dittonghi da iati. Gli altri tre (`chambéry`, `charny`, `mandylion`) sono nomi propri stranieri con `y` in funzione vocalica — un caso che pyphen non gestisce perfettamente in nessuna configurazione.
+
+#### Modifica effettuata
+
+`src/utils.py` è stato semplificato sostituendo il blocco condizionale con una singola riga:
+
+```python
+dic_it = pyphen.Pyphen(lang="it_IT", left=1)
+```
+
+Rimossi anche: `from pathlib import Path`, `PROJECT_ROOT`, `ITALIAN_HYPHEN_DICT_PATH` e l'intera logica `if/else`. Il parametro `right` è stato lasciato al valore predefinito (`right=2`), confermato sperimentalmente irrilevante su questo corpus.
+
+#### Impatto sui report
+
+Su un report completo (tutte le opere, tutte le lingue, tutti gli indici), 150 delle 240 opere italiane presentano variazioni in almeno uno degli indici dipendenti dalle sillabe. Gulpease — che non usa il conteggio sillabe — rimane invariato in tutti i casi. I testi inglesi non sono interessati.
+
+| Indice | Direzione | Δ medio | Δ massimo osservato |
+|---|---|---|---|
+| Flesch | ↓ | −0,05 | −0,13 |
+| Gunning Fog | ↑ | +0,56 | +2,98 |
+| Gulpease | invariato | — | — |
+
+La direzione delle variazioni è coerente: più sillabe contate implicano parole in media più lunghe foneticamente, e quindi punteggi di leggibilità che riflettono più correttamente la complessità reale del lessico. Le variazioni di Flesch sono praticamente impercettibili sulla scala di riferimento. Quelle di Gunning Fog sono più visibili ma in tutti i casi rimangono all'interno della stessa fascia interpretativa.
