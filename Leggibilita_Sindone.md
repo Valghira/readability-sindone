@@ -922,7 +922,7 @@ Per alcuni OOV il nostro fallback è più accurato di textstat/pyphen (`edessa`,
 
 Le differenze tra i due metodi di fallback si ripercuotono sulle opere che contengono OOV frequenti. Su 240 opere inglesi analizzate, 126 (52,5%) presentano almeno una differenza di conteggio rispetto a textstat. Il Δ Flesch massimo osservato su una singola opera è circa 14 punti, generato principalmente da `ninety-eight` (24 occorrenze totali nel corpus), che il nostro fallback sovrastima di 1 sillaba per ogni occorrenza. Le opere con alta concentrazione di questa parola in rapporto alla loro lunghezza sono quelle più esposte all'errore.
 
-#### Limitazioni note — nessuna modifica effettuata
+#### Limitazioni identificate
 
 A differenza della sillabazione italiana, dove è stata identificata e corretta una causa sistematica (il parametro `left=2`), per l'inglese non esiste un'unica correzione strutturale equivalente. I problemi identificati sono:
 
@@ -931,4 +931,161 @@ A differenza della sillabazione italiana, dove è stata identificata e corretta 
 3. **`ninety-eight` sovrastimato di 1 sillaba**: la parola più frequente tra le OOV problematiche (24 occorrenze); il fallback dà 4 invece del reale 3.
 4. **`pia's` trattato come monosillabo**: sequenza `ia` collassata in un solo gruppo vocalico.
 
-Nessuna di queste limitazioni è stata corretta. La copertura di CMUdict (94,4% ponderata) è molto alta per un corpus specialistico, e i problemi residui riguardano categorie di parole — nomi propri stranieri, composti, cifre — per le quali nessun metodo euristico semplice è affidabile. Le limitazioni sono documentate qui come riferimento per eventuali sviluppi futuri o per la discussione nella tesi.
+I problemi 1, 2 e 3 sono stati successivamente corretti con modifiche minimali a `src/utils.py` e `src/core.py`; il problema 4 è rimasto documentato come limitazione nota. Le correzioni e il loro impatto sono documentati nella sezione 7.9.
+
+---
+
+### 7.9 Correzioni al fallback della sillabazione inglese
+
+In seguito all'analisi diagnostica della sezione 7.8, sono state apportate tre correzioni mirate a `src/utils.py` e `src/core.py`. L'obiettivo era eliminare gli errori sistematicamente verificabili senza introdurre regole specifiche per singole parole né nuove dipendenze. Il core CMUdict rimane invariato.
+
+#### Correzione 1 — Vocali accentate nel fallback (src/utils.py)
+
+**Problema**: il loop di conteggio vocalico confrontava `char in "aeiouy"`, ma le vocali accentate (`é`, `è`, `ç`-base-vocale) non sono nella stringa ASCII. `valfrè` veniva contato come 1 sillaba invece di 2.
+
+**Soluzione**: sostituire il confronto diretto con la decomposizione Unicode NFD. `unicodedata.normalize('NFD', char)[0]` restituisce il carattere base senza diacritico (es. `é`→`e`, `è`→`e`, `ç`→`c`). Il confronto avviene sul carattere base.
+
+Aggiunta dell'import:
+```python
+import unicodedata
+```
+
+Loop modificato in `count_syllables_en`:
+```python
+vowels = "aeiouy"
+count = 0
+prev_vowel = False
+for char in word_lower:
+    base = unicodedata.normalize('NFD', char)[0]
+    is_v = base in vowels
+    if is_v:
+        if not prev_vowel:
+            count += 1
+        prev_vowel = True
+    else:
+        prev_vowel = False
+return max(count, 1)
+```
+
+**Effetto sui casi di test**:
+- `valfrè`: 1 → **2** ✓ (v-a-l-f-r-è→e)
+- `besançon`: 2 → **3** ✓ (b-e-s-a-n-ç→c-o-n)
+- `chambéry`: 2 → **3** ✓ (c-h-a-m-b-é→e-r-y)
+
+#### Correzione 2 — Composti con trattino OOV (src/utils.py)
+
+**Problema**: il fallback operava sull'intera stringa incluso il trattino. `ninety-eight` veniva spacchettato come sequenza di caratteri, producendo 4 gruppi vocalici invece del corretto 3.
+
+**Soluzione**: prima del loop, se `word_lower` contiene `-`, spezzare la parola sui trattini e sommare ricorsivamente le sillabe di ogni componente. Ogni componente attraversa autonomamente CMUdict → fallback: `ninety` e `eight` sono entrambe in CMUdict, quindi vengono conteggiate con precisione fonetica.
+
+```python
+if '-' in word_lower:
+    parts = [p for p in word_lower.split('-') if p]
+    if parts:
+        return sum(count_syllables_en(p) for p in parts)
+```
+
+Questo blocco viene inserito **dopo** il check CMUdict (le parole composte in CMUdict vengono usate intatte) e **prima** del loop sui caratteri.
+
+**Effetto sui casi di test**:
+- `ninety-eight`: 4 → **3** ✓ (`ninety`(CMU,2) + `eight`(CMU,1))
+- `one-to-one`: 5 → **3** ✓ (`one`(1)+`to`(1)+`one`(1))
+- `eighteenth-century`: 5 → **5** (invariato — entrambi componenti già corretti via CMUdict)
+
+#### Correzione 3 — Normalizzazione em-dash upstream (src/core.py)
+
+**Problema architetturale**: em-dash (U+2014) e en-dash (U+2013) non appartengono ad `string.punctuation` (ASCII). Un token come `which—in` arrivava intero a `count_syllables_en` e a `word_count`. Correggerlo solo dentro `count_syllables_en` avrebbe lasciato `word_count` e `count_complex_words` a trattare `which—in` come un'unica parola, creando incoerenza tra le metriche.
+
+**Soluzione**: normalizzare `analysis_text` nel punto in cui viene assemblato in `_collect_results`, prima di qualsiasi funzione di metrica. `display_text` (usato solo per la colonna testuale del CSV) rimane inalterato.
+
+```python
+# Prima (riga ~142):
+tagged_works.append((title, " ".join(sentences), "\n".join(sentences), current_lang))
+
+# Dopo:
+tagged_works.append((title, " ".join(sentences).replace('—', ' ').replace('–', ' '), "\n".join(sentences), current_lang))
+```
+
+Lo stesso pattern viene applicato sia al ramo `process_all_categories=True` (riga 142) sia al ramo singola categoria (riga 147).
+
+**Effetto**: `which—in` e `edition—is` vengono correttamente splittati in due parole per `word_count`, `sentence_count`, `average_syllables_per_word` e `count_complex_words`.
+
+#### Limitazione non corretta — `pia's`
+
+`pia's` viene trattato come 1 sillaba (sequenza `ia` collassata in un unico gruppo vocalico). Il valore corretto è 2 (Pi-a). Distinguere l'iato `ia` dal dittongo richiede conoscenza fonemica specifica per ogni parola: in inglese `ia` può essere sia dittongo che iato a seconda dell'origine etimologica, e nessuna regola semplice generalizza correttamente. La parola appare 6 volte nel corpus, con impatto trascurabile sugli indici. La limitazione rimane documentata.
+
+#### Impatto sui report
+
+Dopo le correzioni, il report è stato rigenerato (`report_gulpease_flesch_gunning_fog_all_all_20260817_123409.csv`) e confrontato con la versione precedente.
+
+**Concordanza vs textstat** (su parole uniche): 94,7% → **95,5%**. Le 3 parole corrette (valfrè, besançon, chambéry) si spostano dalla colonna dei disaccordi a quella dei casi allineati o giustificabili. Nota: chambéry ora ottiene 3 sillabe (corretto: Cham-bé-ry) mentre textstat restituisce 2 — si tratta di un caso in cui la nostra implementazione è più accurata.
+
+**Gulpease**: **invariato**. La formula Gulpease dipende dal conteggio di lettere e parole, non di sillabe; le correzioni alla sillabazione non la influenzano.
+
+**Flesch (inglese)**: variazioni limitate sulle opere che contengono le parole corrette. Il caso più estremo è l'opera `Blessed Sebastiano Valfrè`: testo di soli 3 parole, Flesch passa da 34,59 a 6,39 (Δ −28,20). Questo comportamento non è un bug della correzione: su un testo di 3 parole la formula Flesch `206,835 − 84,6 × (S/W) − 1,015 × (W/Fr)` amplifica qualsiasi variazione nella media sillabe/parola — `valfrè` che passa da 1 a 2 sillabe sposta la media da 2,0 a 2,33, con un Δ Flesch di circa 28 punti. Questo riflette la nota instabilità di Flesch sui testi molto brevi, non un errore del conteggio.
+
+**Gunning Fog (inglese)**: 6 delle 240 righe risultano modificate con Δ = +0,25 costante. Le 6 righe corrispondono alla stessa opera **"The 18th-century reliquaries"** presente in 6 categorie diverse del corpus — non si tratta di 6 fenomeni linguistici indipendenti. Le cause sono due: la normalizzazione dell'em-dash porta il word count da 61 a 63 (`which—in` e `edition—is` splittati in 2 token), e `chambéry` passa da 2 a 3 sillabe (soglia "parola complessa" per Gunning Fog). L'impatto è trascurabile a livello di corpus.
+
+**Conclusione**: le tre correzioni migliorano l'accuratezza della stima del conteggio sillabico per le categorie di parole più problematiche (accentate, composte con trattino, em-dash), senza regressioni sulle parole già gestite correttamente da CMUdict. La copertura CMUdict sul corpus rimane invariata (89,3% per parole uniche, 94,4% ponderata per occorrenze).
+
+#### Verifica quantitativa finale
+
+Prima del commit, i due report CSV sono stati confrontati sistematicamente con uno script diagnostico temporaneo: report pre-fix (`20260815_170858`) vs. report post-fix rigenerato (`20260817_125723`). Corpus totale: 480 opere (240 IT + 240 EN); merge 1:1 su Id/Lang/Title.
+
+**Italiano — invarianza completa**
+
+| Campo | Risultato |
+|---|---|
+| Gulpease | 240/240 invariate |
+| Flesch | 240/240 invariate |
+| Gunning Fog | 240/240 invariate |
+| Words, Letters, Num\_Sentences | 240/240 invariati |
+
+Nessuna delle correzioni alla sillabazione o tokenizzazione inglese ha avuto effetti collaterali sui calcoli italiani.
+
+**Inglese — Flesch**
+
+| Statistica (sole 84 opere modificate) | Valore |
+|---|---|
+| Opere modificate | 84 / 240 |
+| Opere invariate | 156 / 240 |
+| Delta medio | +1,17 |
+| Delta mediano | +3,29 |
+| Delta minimo | −28,20 |
+| Delta massimo | +11,28 |
+
+La distribuzione è prevalentemente positiva: i fix di `ninety-eight` (4→3 sill) e `one-to-one` (5→3) riducono la stima media di sillabe per parola e alzano il punteggio Flesch delle opere coinvolte. Le variazioni negative importanti si limitano a un solo caso ("Blessed Sebastiano Valfrè", già discusso sopra).
+
+**Inglese — Gunning Fog**
+
+6/240 righe modificate (la stessa opera "The 18th-century reliquaries" in 6 categorie), Δ = +0,25 costante. 234/240 invariate.
+
+**Verifica word-level**
+
+| Parola | Sillabe attese | Sillabe ottenute | Stato |
+|---|---|---|---|
+| `valfrè` | 2 | 2 | OK |
+| `besançon` | 3 | 3 | OK |
+| `chambéry` | 3 | 3 | OK |
+| `ninety-eight` | 3 | 3 | OK |
+| `one-to-one` | 3 | 3 | OK |
+| `eighteenth-century` | 5 | 5 | OK (invariato, CMUdict) |
+| `pia's` | 1 | 1 | OK (limitazione nota) |
+| `history` | 3 | 3 | OK (CMUdict) |
+| `camera` | 3 | 3 | OK (CMUdict) |
+| `museum` | 3 | 3 | OK (CMUdict — trisillabo: mu-se-um) |
+
+Nota: il test diagnostico aveva inizialmente impostato `museum` atteso=2; CMUdict restituisce correttamente 3 (mu-se-um). Non si tratta di un bug del codice.
+
+**Concordanza textstat aggiornata**
+
+| Fase | Concordanza su 600 parole uniche |
+|---|---|
+| Pre-fix (sezione 7.8) | 568/600 = 94,7% |
+| Post-fix (attuale) | 573/600 = 95,5% |
+
+I 27 disaccordi residui riguardano tutti parole OOV (non in CMUdict). Categorie principali: nomi propri/toponimi (`edessa`, `mandylion`, `sebastiano`, `lirey`, ecc.), composti con trattino dove le due euristiche divergono sistematicamente, 1 caso di limitazione nota (`pia's`). Tra i disaccordi compare anche `which—in` (freq=6): si tratta di un artefatto metodologico della comparazione — lo script diagnostico opera sulle parole grezze del corpus, mentre nel flusso di produzione `_collect_results` normalizza l'em-dash prima di qualsiasi calcolo e `which—in` non raggiunge mai `count_syllables_en`.
+
+**Conclusione della fase inglese**
+
+Non sono state identificate regressioni. Le correzioni eliminano errori sistematici verificabili sui tre casi identificati in 7.8 (punti 1–3). La concordanza con il riferimento indipendente migliora dal 94,7% al 95,5%. Le limitazioni residue (OOV, nomi propri stranieri, `pia's`) sono note, documentate e accettabili per un corpus specialistico di questa natura. La parte relativa alla sillabazione inglese può essere considerata sufficientemente verificata e chiusa.

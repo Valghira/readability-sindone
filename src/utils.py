@@ -1,5 +1,6 @@
 import re
 import string
+import unicodedata
 import pyphen
 import cmudict
 # ----------------------------
@@ -84,12 +85,19 @@ def count_syllables_en(word):
         # Count vowels in the first pronunciation variant
         return len([ph for ph in cmu_dict[word_lower][0] if ph[-1].isdigit()])
     else:
-        # fallback: count vowel groups as approximate syllables
+        # Hyphenated compounds: sum syllables of each component
+        if '-' in word_lower:
+            parts = [p for p in word_lower.split('-') if p]
+            if parts:
+                return sum(count_syllables_en(p) for p in parts)
+        # Fallback: vowel-group counting with Unicode NFD for accented vowels
         vowels = "aeiouy"
         count = 0
         prev_vowel = False
         for char in word_lower:
-            if char in vowels:
+            base = unicodedata.normalize('NFD', char)[0]
+            is_v = base in vowels
+            if is_v:
                 if not prev_vowel:
                     count += 1
                 prev_vowel = True

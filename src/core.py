@@ -139,12 +139,12 @@ def _collect_results(data, indices_to_use, lang, process_all_categories, categor
             for age_group in data[current_lang]:
                 for cat in data[current_lang][age_group]:
                     for title, sentences in utils.extract_works(data[current_lang][age_group][cat]):
-                        tagged_works.append((title, " ".join(sentences), "\n".join(sentences), current_lang))
+                        tagged_works.append((title, " ".join(sentences).replace('—', ' ').replace('–', ' '), "\n".join(sentences), current_lang))
         else:
             if category is None or sub_category is None:
                 raise ValueError("Both 'category' and 'sub_category' must be specified if 'process_all_categories' is False.")
             for title, sentences in utils.extract_works(data[current_lang][category][sub_category]):
-                tagged_works.append((title, " ".join(sentences), "\n".join(sentences), current_lang))
+                tagged_works.append((title, " ".join(sentences).replace('—', ' ').replace('–', ' '), "\n".join(sentences), current_lang))
 
     if MAX_WORKS:
         tagged_works = tagged_works[:MAX_WORKS]
