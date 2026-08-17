@@ -868,3 +868,67 @@ Su un report completo (tutte le opere, tutte le lingue, tutti gli indici), 150 d
 | Gulpease | invariato | — | — |
 
 La direzione delle variazioni è coerente: più sillabe contate implicano parole in media più lunghe foneticamente, e quindi punteggi di leggibilità che riflettono più correttamente la complessità reale del lessico. Le variazioni di Flesch sono praticamente impercettibili sulla scala di riferimento. Quelle di Gunning Fog sono più visibili ma in tutti i casi rimangono all'interno della stessa fascia interpretativa.
+
+### 7.8 Analisi diagnostica della sillabazione inglese
+
+Dopo aver corretto e verificato la sillabazione italiana (sezione 7.7), è stata condotta un'analoga analisi diagnostica sulla sillabazione inglese, con l'obiettivo di misurare la copertura effettiva di CMUdict sul corpus reale e valutare l'affidabilità del fallback euristico sulle parole non coperte.
+
+#### Implementazione attuale
+
+La funzione `count_syllables_en()` in `src/utils.py` opera in due fasi distinte:
+
+1. **Ricerca in CMUdict.** La parola viene normalizzata con `word.strip(string.punctuation + """''")` — punteggiatura ASCII e virgolette tipografiche vengono rimosse **solo dalle estremità**; la punteggiatura interna (trattini, apostrofi interni, em-dash) non viene toccata. Se la parola normalizzata e convertita in minuscolo è presente in CMUdict, si usa la prima pronuncia disponibile (`cmu_dict[word_lower][0]`) e si contano i fonemi il cui ultimo carattere è una cifra. In ARPABET, i numeri 0, 1, 2 appaiono **esclusivamente** sui fonemi vocalici come indicatori del livello di accento (0=atono, 1=accento primario, 2=secondario): contarli equivale quindi a contare i nuclei sillabici, che in inglese coincidono con le sillabe fonologiche.
+
+2. **Fallback euristico.** Se la parola non è in CMUdict, si contano i gruppi contigui di caratteri appartenenti alla stringa `"aeiouy"`, restituendo almeno 1. Questo metodo non distingue dittonghi da iati, non riconosce vocali accentate (es. `é`, `è`), e non tratta casi particolari come la *e* muta finale, le forme contratte o le parole composte con trattino.
+
+#### Copertura di CMUdict sul corpus inglese
+
+Il corpus inglese contiene 8.802 occorrenze totali di parole, per 600 tipi (parole uniche). L'analisi è stata condotta con uno script temporaneo, usando la stessa logica di normalizzazione di `count_syllables_en()`.
+
+| Misura | Valore |
+|---|---|
+| Parole uniche totali | 600 |
+| Presenti in CMUdict | 536 (89,3%) |
+| OOV (non in CMUdict) | 64 (10,7%) |
+| Copertura ponderata su occorrenze | 94,4% |
+| Occorrenze gestite dal fallback | 5,6% |
+
+La copertura ponderata — la percentuale di volte in cui CMUdict è effettivamente disponibile durante il calcolo — è la cifra più rilevante per valutare l'impatto pratico del fallback.
+
+#### Analisi delle parole OOV
+
+Le 64 parole non presenti in CMUdict appartengono a categorie prevedibili per un corpus museale con testi sia storici che in lingue originali diverse:
+
+- **Numeri e date** (18 OOV, es. `4`, `21`, `1578`, `2010`): il fallback restituisce 1. Difendibile ai fini dell'indice di leggibilità.
+- **Composti con trattino** (11 OOV, es. `ninety-eight` freq=24, `eighteenth-century` freq=12): il fallback opera sull'intera stringa incluso il trattino. `ninety-eight` ottiene 4 dal fallback, mentre il valore reale è 3 (nine-ty-eight). Il trattino è trattato correttamente come separatore non-vocalico, ma il conteggio complessivo è impreciso perché `y` finale di `ninety` viene contata come sillaba separata.
+- **Nomi propri e toponimi** (14+ OOV, es. `edessa` freq=18, `mandylion` freq=18, `zakopane`, `sanliurfa`): il fallback produce risultati spesso corretti per questi nomi (`edessa`=3 reale 3, `mandylion`=3 reale 3), ma è intrinsecamente inaffidabile su parole con schemi fonetici atipici per l'inglese.
+- **Parole con caratteri non-ASCII** (`chambéry`, `besançon`, `valfrè`, `which—in`, `edition—is`): le vocali accentate (`é`, `è`) non sono nella stringa `"aeiouy"` e vengono trattate come consonanti dal fallback. `valfrè` ottiene quindi 1 invece di 2. Le ultime due contengono un em-dash (U+2014) incorporato, che non è in `string.punctuation` (ASCII) e non viene strippato nemmeno dai bordi — i due token vengono processati come parole malformate.
+- **Forme contratte** (`pia's` freq=6, `shroud's` freq=24): il fallback tratta `ia` come un unico gruppo vocalico, dando a `pia's` 1 sillaba invece di 2.
+
+#### Pronunce multiple in CMUdict
+
+Tra le 536 parole presenti in CMUdict, 126 hanno più di una pronuncia; di queste, 11 producono conteggi di sillabe diversi tra le varianti. I casi più frequenti nel corpus sono `several` (usato con 2 sillabe, alternativa 3), `history` (usato con 3, alternativa 2), `camera` (usato con 3, alternativa 2). Le varianti con meno sillabe corrispondono alle pronunce ridotte tipiche del parlato colloquiale; usare sempre la prima pronuncia (`[0]`), che è la forma più elaborata, è coerente con l'obiettivo di misurare la complessità lessicale in un contesto di comunicazione museale. Questo non costituisce un problema.
+
+#### Riferimento indipendente: textstat
+
+`textstat` — già incluso in `requirements.txt` — è stato usato come punto di confronto. La sua implementazione interna usa CMUdict come metodo principale e pyphen (con dizionario inglese) come fallback per le parole OOV: **non** l'euristica sui gruppi vocalici. Per le parole in CMUdict, textstat usa la stessa logica della nostra implementazione, quindi i risultati sono identici. Le differenze riguardano **solo le 64 parole OOV**, dove i due metodi di fallback divergono:
+
+- 568/600 parole (94,7%): concordanza tra i due metodi
+- 32/600 parole (5,3%): disaccordo — tutte e sole parole OOV
+
+Per alcuni OOV il nostro fallback è più accurato di textstat/pyphen (`edessa`, `mandylion`, `hematoma`); per altri è meno accurato (`pia's`, `valfrè`, `ninety-eight`). Nessuno dei due metodi è una ground truth.
+
+#### Impatto sui report
+
+Le differenze tra i due metodi di fallback si ripercuotono sulle opere che contengono OOV frequenti. Su 240 opere inglesi analizzate, 126 (52,5%) presentano almeno una differenza di conteggio rispetto a textstat. Il Δ Flesch massimo osservato su una singola opera è circa 14 punti, generato principalmente da `ninety-eight` (24 occorrenze totali nel corpus), che il nostro fallback sovrastima di 1 sillaba per ogni occorrenza. Le opere con alta concentrazione di questa parola in rapporto alla loro lunghezza sono quelle più esposte all'errore.
+
+#### Limitazioni note — nessuna modifica effettuata
+
+A differenza della sillabazione italiana, dove è stata identificata e corretta una causa sistematica (il parametro `left=2`), per l'inglese non esiste un'unica correzione strutturale equivalente. I problemi identificati sono:
+
+1. **Vocali accentate non riconosciute dal fallback** (`valfrè`, `besançon`, `chambéry`): frequenza bassa (6 occorrenze ciascuna), impatto limitato.
+2. **Em-dash non strippato** (`which—in`, `edition—is`): tokenizzazione errata per 2 parole, freq=6 ciascuna, impatto trascurabile.
+3. **`ninety-eight` sovrastimato di 1 sillaba**: la parola più frequente tra le OOV problematiche (24 occorrenze); il fallback dà 4 invece del reale 3.
+4. **`pia's` trattato come monosillabo**: sequenza `ia` collassata in un solo gruppo vocalico.
+
+Nessuna di queste limitazioni è stata corretta. La copertura di CMUdict (94,4% ponderata) è molto alta per un corpus specialistico, e i problemi residui riguardano categorie di parole — nomi propri stranieri, composti, cifre — per le quali nessun metodo euristico semplice è affidabile. Le limitazioni sono documentate qui come riferimento per eventuali sviluppi futuri o per la discussione nella tesi.
