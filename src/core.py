@@ -104,6 +104,13 @@ def inspect_json(data):
             structure[lang][age_group] = sorted(categories.keys())
     return structure
 
+
+def get_supported_langs(data):
+    """Return sorted list of language codes present in data AND supported by at least one index."""
+    langs_in_json = set(data.keys())
+    langs_with_index = set().union(*INDEX_LANGS.values())
+    return sorted(langs_in_json & langs_with_index)
+
 # ----------------------------
 # Shared data collection
 # ----------------------------
@@ -129,7 +136,15 @@ def _collect_results(data, indices_to_use, lang, process_all_categories, categor
     if indices_to_use == "all":
         indices_to_use = list(INDEX_REGISTRY.keys())
 
-    langs_to_process = list(data.keys()) if lang == "all" else [lang]
+    if lang == "all":
+        langs_to_process = get_supported_langs(data)
+        lang_label = "all"
+    elif isinstance(lang, list):
+        langs_to_process = lang
+        lang_label = "_".join(sorted(lang))
+    else:
+        langs_to_process = [lang]
+        lang_label = lang
 
     tagged_works = []
     for current_lang in langs_to_process:
@@ -169,7 +184,7 @@ def _collect_results(data, indices_to_use, lang, process_all_categories, categor
         results.append(row)
 
     cat_label = "all" if process_all_categories else f"{category}_{sub_category}"
-    return results, indices_to_use, lang, cat_label
+    return results, indices_to_use, lang_label, cat_label
 
 # ----------------------------
 # Report generation

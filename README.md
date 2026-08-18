@@ -67,10 +67,10 @@ I parametri disponibili per `generate_csv_report` e `generate_excel_report` sono
 | Parametro | Tipo | Descrizione |
 |---|---|---|
 | `indices_to_use` | `list` o `"all"` | Indici da calcolare (`"gulpease"`, `"flesch"`, `"gunning_fog"`) |
-| `lang` | `str` o `"all"` | Lingua del corpus (`"it"`, `"en"`, o `"all"`) |
+| `lang` | `str`, `list[str]` o `"all"` | Lingua o lingue del corpus. Esempi: `"it"`, `["it","en"]`, `"all"` (tutte le lingue presenti nel corpus e supportate da almeno un indice) |
 | `process_all_categories` | `bool` | Se `True`, elabora tutte le categorie ignorando i due parametri seguenti |
-| `category` | `str` | Gruppo di età (`"adult"`, `"children"`) |
-| `sub_category` | `str` | Sottocategoria (es. `"typical"`, `"blind"`, `"deaf"`) |
+| `category` | `str` | Gruppo di primo livello ricavato dalla struttura del JSON |
+| `sub_category` | `str` | Sottocategoria di secondo livello ricavata dalla struttura del JSON |
 
 I report vengono salvati in `./reports/` con nome nel formato:
 
@@ -101,15 +101,15 @@ python gui.py
 L'interfaccia è organizzata in quattro pannelli:
 
 1. **File JSON** — percorso del corpus da analizzare (precaricato con il file predefinito); il pulsante *Sfoglia* permette di selezionare un file diverso.
-2. **Configurazione** — selezione degli indici da calcolare, della lingua (`Tutte`, `Italiano`, `Inglese`) e del formato di output (`CSV`, `Excel` o entrambi).
+2. **Configurazione** — selezione degli indici da calcolare, della lingua e del formato di output (`CSV`, `Excel` o entrambi). La sezione Lingua mostra un checkbox per ogni lingua rilevata nel corpus e supportata da almeno un indice, costruito dinamicamente al caricamento del JSON; bottoni "Seleziona tutti" / "Deseleziona tutti" per selezione rapida. Le lingue presenti nel corpus ma non supportate da alcun indice non compaiono tra le checkbox e vengono segnalate nel log.
 3. **Categorie** — scelta tra tutte le categorie disponibili nel corpus o una specifica combinazione gruppo/sottocategoria, con i valori popolati dinamicamente in base al file caricato.
-4. **Esegui** — avvia l'analisi; il pannello di log in basso mostra i percorsi dei file generati al termine dell'elaborazione.
+4. **Esegui** — avvia l'analisi; il pannello di log in basso mostra i percorsi dei file generati al termine dell'elaborazione. Il log usa tre livelli visivi: messaggi normali nel colore predefinito del tema; **AVVISO** in arancione (situazioni da segnalare che non bloccano l'esecuzione, es. lingua rilevata nel corpus ma non supportata); **ATTENZIONE** ed **ERRORE** in rosso (problemi che impediscono o interrompono l'esecuzione).
 
 ---
 
 ## Limiti e sviluppi futuri
 
-**Lingue supportate** — Il corpus attuale contiene testi in italiano e inglese; le opzioni di lingua nell'interfaccia grafica rispecchiano questa composizione. Aggiungere nuove lingue richiederebbe di estendere il corpus JSON e la logica di sillabazione in `src/utils.py`.
+**Lingue supportate** — La GUI rileva dinamicamente le lingue presenti nel JSON e mostra come selezionabili solo quelle supportate da almeno un indice (criterio definito in `INDEX_LANGS` in `src/core.py`). Aggiungere una nuova lingua richiede di estendere: le formule in `src/indices.py` e `INDEX_LANGS` per la compatibilità indice-lingua, e la sillabazione in `src/utils.py`. L'infrastruttura di selezione e pipeline supporta già N lingue senza modifiche alla GUI.
 
 **Flesch italiano (Franchina-Vacca)** — La formula originale prevede il conteggio delle sillabe su un campione di 100 parole consecutive. Poiché la grande maggioranza dei testi del corpus ha meno di 100 parole, l'implementazione attuale usa la media delle sillabe per parola in luogo del campione, rappresentando un'approssimazione rispetto alla specifica originale. *(Fonte: [Wikipedia — Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch))*
 

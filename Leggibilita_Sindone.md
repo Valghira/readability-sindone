@@ -241,6 +241,8 @@ def generate_report(indices_to_use, lang, process_all_categories=False, category
 |-----------|------|-------------|
 | `indices_to_use` | `list[str]` oppure `"all"` | Indici da calcolare. `"all"` include tutti quelli registrati. |
 | `lang` | `str` oppure `"all"` | Lingua dei testi (`"it"`, `"en"`, …). `"all"` processa tutte le lingue presenti nel JSON. |
+
+> **Nota (aggiornamento 7.10):** il parametro `lang` supporta ora anche `list[str]` per rappresentare un sottoinsieme esplicito di lingue. Il significato di `"all"` è stato precisato: processa le lingue del JSON *supportate da almeno un indice*, non necessariamente tutte quelle presenti. I dettagli sono in sezione 7.10.
 | `process_all_categories` | `bool` | Se `True`, elabora tutte le categorie del JSON; altrimenti filtra su `category` e `sub_category`. |
 | `category` | `str \| None` | Gruppo (es. `"adult"`, `"children"`). Obbligatorio se `process_all_categories=False`. |
 | `sub_category` | `str \| None` | Sottocategoria (es. `"typical"`). Obbligatorio se `process_all_categories=False`. |
@@ -483,6 +485,8 @@ def _collect_results(indices_to_use, lang, process_all_categories, category, sub
     return results, indices_to_use, lang, cat_label
 ```
 
+> **Nota (aggiornamento 7.10):** la risoluzione di `"all"` in `_collect_results` ora usa `get_supported_langs(data)` invece di `list(data.keys())`, escludendo le lingue non supportate. Il `return` restituisce `lang_label` (stringa leggibile per il filename) invece di `lang` (che potrebbe essere una lista). I dettagli in sezione 7.10.
+
 **`generate_csv_report(indices_to_use, lang, process_all_categories=False, category=None, sub_category=None)`**
 
 Chiama `_collect_results` e scrive l'output con `csv.DictWriter`. Firma e comportamento identici alla vecchia `generate_report()`: produce un file `.csv` con il nome `report_{indici}_{lingua}_{categoria}_{timestamp}.csv`.
@@ -679,6 +683,7 @@ Funzioni e costanti esportate da `src/core.py`:
 | `load_data(json_path)` | Carica e restituisce il JSON |
 | `inspect_json(data)` | Analizza la struttura del corpus → `{lang: {age_group: [sub_cat, ...]}}` |
 | `_collect_results(data, ...)` | Raccoglie i risultati; ora riceve `data` come primo argomento invece di una variabile globale |
+| `get_supported_langs(data)` | Restituisce la lista ordinata di codici lingua presenti nel corpus e supportati da almeno un indice |
 | `generate_csv_report(data, ..., log_fn=print)` | Genera il CSV; `log_fn` sostituisce `print` per reindirizzare il log |
 | `generate_excel_report(data, ..., log_fn=print)` | Genera l'Excel; stessa firma |
 
@@ -708,7 +713,7 @@ Corpus: 2 lingue  •  it: adult(3 sub-cat), child(3 sub-cat)
 
 **2 — Configurazione** (tre colonne affiancate)
 - *Indici*: un checkbox per ogni indice, generati dinamicamente da `INDEX_REGISTRY.keys()`; bottoni "Tutti"/"Nessuno" per selezione rapida.
-- *Lingua*: radio Tutte / Italiano / Inglese.
+- *Lingua*: radio Tutte / Italiano / Inglese. *(Questa implementazione statica è stata in seguito sostituita con checkbox costruite dinamicamente; vedi sezione 7.10.)*
 - *Formato output*: checkbox CSV e checkbox Excel (.xlsx), selezionabili indipendentemente.
 
 **3 — Categorie**
@@ -728,6 +733,9 @@ Riquadro read-only che riceve i messaggi di stato via `log_fn=self._log`, mostra
 - **Checkbox indici generati da codice:** i checkbox sono costruiti iterando `INDEX_REGISTRY.keys()`. Aggiungere un nuovo indice in `src/core.py` fa apparire automaticamente il checkbox corrispondente in GUI senza toccare `gui.py`.
 - **Validazione pre-esecuzione:** se nessun indice o nessun formato è selezionato, il bottone scrive un avviso nel log invece di procedere.
 - **`log_fn` come callback:** `generate_csv_report` e `generate_excel_report` accettano un parametro `log_fn` (default `print`). Da terminale si usa `print`; dalla GUI si passa `self._log`, che scrive nel riquadro di log. In questo modo la stessa funzione funziona sia in modalità CLI che GUI senza codice condizionale.
+- **Lingue rilevate dinamicamente:** al caricamento del JSON, `get_supported_langs(data)` calcola l'intersezione tra le lingue presenti nel corpus e quelle supportate da almeno un indice (`INDEX_LANGS`). Le checkbox nella sezione Lingua vengono ricostruite da zero su questo insieme. Caricare un JSON con una lingua non supportata non produce errori: la lingua viene esclusa dalle checkbox e segnalata con un avviso nel log.
+- **Sottoinsiemi arbitrari di lingue:** il parametro `lang` della pipeline ora accetta `str`, `"all"` o `list[str]`. Selezionare qualsiasi sottoinsieme non vuoto di lingue disponibili produce un report che le contiene tutte, con `lang_label` nel nome del file costruito come codici ordinati separati da `_` (es. `en_it`).
+- **Categorie e sottocategorie sempre dinamiche:** i menu vengono popolati dalla struttura del JSON caricato; nessuna categoria o sottocategoria è hardcoded. Verificato con JSON di test contenenti nomi di categorie arbitrari.
 
 ### 7.5 Struttura aggiornata dei moduli
 
@@ -785,6 +793,27 @@ def _log(self, msg):
 ```
 
 **Risultato:** i messaggi `ERRORE` e `ATTENZIONE` appaiono in rosso nel pannello Log; i messaggi informativi (`JSON caricato: ...`, `Fatto.`) restano nel colore predefinito del testo.
+
+**Evoluzione successiva: terzo livello visivo (AVVISO)**
+
+In una fase successiva (v. sezione 7.10) è stato introdotto un terzo livello visivo per i messaggi non bloccanti che l'utente deve comunque conoscere. Il tag `"warning"` arancione (`#FF8C00`) viene configurato accanto al tag `"error"` in `_build_log_section`:
+
+```python
+self.log_box._textbox.tag_configure("warning", foreground="#FF8C00")
+```
+
+Il metodo `_log` rileva i messaggi che iniziano con `"AVVISO"` e applica il tag `"warning"` tramite un ramo `elif` (che esclude la sovrapposizione con il tag `"error"`).
+
+La gerarchia visiva completa diventa:
+
+| Prefisso | Colore | Natura |
+|----------|--------|--------|
+| *(nessuno)* | default del tema | informativo |
+| `AVVISO` | arancione `#FF8C00` | non bloccante |
+| `ATTENZIONE` | rosso `#E53935` | bloccante (validazione) |
+| `ERRORE` | rosso `#E53935` | eccezione |
+
+Il primo utilizzo concreto di `AVVISO` è la segnalazione delle lingue presenti nel JSON ma non supportate da alcun indice, emessa da `_load_json` dopo il messaggio "JSON caricato: …".
 
 ### 7.7 Verifica e perfezionamento della sillabazione italiana
 
@@ -1089,3 +1118,89 @@ I 27 disaccordi residui riguardano tutti parole OOV (non in CMUdict). Categorie 
 **Conclusione della fase inglese**
 
 Non sono state identificate regressioni. Le correzioni eliminano errori sistematici verificabili sui tre casi identificati in 7.8 (punti 1–3). La concordanza con il riferimento indipendente migliora dal 94,7% al 95,5%. Le limitazioni residue (OOV, nomi propri stranieri, `pia's`) sono note, documentate e accettabili per un corpus specialistico di questa natura. La parte relativa alla sillabazione inglese può essere considerata sufficientemente verificata e chiusa.
+
+---
+
+### 7.10 Generalizzazione dinamica delle lingue nella GUI e nella pipeline
+
+#### Situazione iniziale
+
+La GUI conteneva una lista hardcoded `[("it", "Italiano"), ("en", "Inglese")]` usata per costruire un radio button statico "Tutte / Italiano / Inglese". Qualsiasi JSON con lingue aggiuntive avrebbe ignorato le lingue extra senza avvertire l'utente; la pipeline assumeva `lang` come `str | "all"`, rendendo impossibile selezionare un sottoinsieme arbitrario di lingue.
+
+#### Obiettivo
+
+Preparare l'architettura per N lingue senza aggiungere ancora lingue reali: generalizzare selezione, GUI, pipeline e filtraggio. La correttezza linguistica (formule specifiche, sillabazione) di nuove lingue è fuori scope di questa fase.
+
+#### get_supported_langs(data)
+
+Introdotta in `src/core.py` la funzione:
+
+```python
+def get_supported_langs(data):
+    """Return sorted list of language codes present in data AND supported by at least one index."""
+    langs_in_json = set(data.keys())
+    langs_with_index = set().union(*INDEX_LANGS.values())
+    return sorted(langs_in_json & langs_with_index)
+```
+
+Centralizza il criterio: una lingua è "utilizzabile" solo se compare sia nel JSON sia in almeno un valore di `INDEX_LANGS`. Viene usata da `_load_json` (GUI) e da `_collect_results` (pipeline), evitando duplicazione della logica.
+
+#### Costruzione dinamica delle checkbox
+
+`_load_json` chiama `_rebuild_lang_checkboxes(get_supported_langs(self.data))` invece di costruire i radio button statici. Il nuovo metodo `_rebuild_lang_checkboxes` svuota `self.lang_frame`, azzera `self.lang_vars` e crea una `CTkCheckBox` per ogni codice lingua risultante, con il codice come etichetta (`"it"`, `"en"`, …) senza ulteriori mappature hardcoded.
+
+I bottoni "Seleziona tutti" / "Deseleziona tutti" sono in un frame esterno (`lang_outer`) che non viene mai distrutto durante la ricostruzione delle checkbox. Al caricamento di un JSON diverso, le checkbox vengono ricostruite da zero rispecchiando il nuovo corpus.
+
+#### Avviso per lingue non supportate
+
+Dopo il messaggio "JSON caricato: …", `_load_json` calcola `set(self.data.keys()) - set(supported)` e logga un `AVVISO` arancione per ogni lingua non resa selezionabile, spiegando il motivo all'utente senza interrompere il flusso. Esempio:
+
+```
+AVVISO: lingua 'de' rilevata nel JSON ma non supportata da alcun indice. Non sarà disponibile per la generazione del report.
+```
+
+#### Nuovo significato di "all"
+
+Prima: `lang == "all"` → `list(data.keys())` (tutte le lingue del JSON, comprese le non supportate).  
+Ora: `lang == "all"` → `get_supported_langs(data)` (sole lingue supportate).
+
+La distinzione è rilevante quando il JSON contiene lingue senza un indice corrispondente.
+
+#### Estensione di lang a list[str]
+
+`_collect_results` normalizza `lang` in tre rami distinti:
+
+| Valore | `langs_to_process` | `lang_label` (nome file) |
+|--------|-------------------|--------------------------|
+| `"all"` | `get_supported_langs(data)` | `"all"` |
+| `list[str]` | il valore stesso | codici ordinati uniti da `_` (es. `"en_it"`) |
+| `str` | `[lang]` | il valore stesso |
+
+`_run()` in `gui.py` produce `"all"` se tutte le lingue disponibili sono selezionate, altrimenti passa la lista completa dei codici selezionati. La retrocompatibilità con `lang="it"`, `lang="en"`, `lang="all"` è preservata.
+
+#### Categorie e sottocategorie dinamiche
+
+I menu "Categorie" erano già dinamici. La verifica con un JSON di test contenente categorie con nomi arbitrari (`visitatori`, `ricercatori`, `standard`, `percorso_semplice`, `scheda_breve`, `scheda_tecnica`) ha confermato che nessun nome di categoria è hardcoded nella GUI. Il fallback in `_update_category_menus` e `_on_cat_select` usa ora `self.lang_vars.keys()` (sole lingue supportate/selezionabili) invece di `self.structure.keys()` (tutte le lingue del JSON), evitando di includere lingue non supportate nel calcolo dei menu.
+
+#### Test manuali effettuati
+
+| Caso | Risultato |
+|------|-----------|
+| Corpus attuale (it + en) | Comportamento preservato, nessun AVVISO lingua |
+| JSON con sola lingua italiana | Una sola checkbox `it`, report generato correttamente |
+| JSON it + en + de (de non supportato) | Checkbox `it` e `en`, AVVISO arancione per `de` |
+| JSON con categorie e sottocategorie arbitrarie | Menu popolati correttamente, nessun hardcoding |
+| Sottoinsieme it (su corpus it+en) | Report solo IT, filename `…_it_…` |
+| Regressione: tutte le lingue corpus attuale | `lang="all"`, 480 opere, risultati identici ai report precedenti |
+
+Nessuna regressione osservata.
+
+#### Limiti di questa fase
+
+Questa fase generalizza la **gestione, la selezione e la pipeline** delle lingue. Non costituisce un'aggiunta di nuove lingue funzionanti: per qualsiasi lingua oltre `it` e `en` restano da affrontare nelle fasi successive:
+
+- formule degli indici specifiche per la nuova lingua;
+- aggiornamento di `INDEX_LANGS` con il nuovo codice lingua;
+- conteggio delle sillabe (nuova funzione o fallback appropriato in `src/utils.py`);
+- verifica dell'accuratezza dei risultati su un corpus reale;
+- eliminazione di eventuali fallback impliciti verso l'inglese presenti nelle funzioni esistenti.

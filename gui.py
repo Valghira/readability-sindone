@@ -1,7 +1,7 @@
 import customtkinter as ctk
 from tkinter import filedialog
 from src.core import (
-    load_data, inspect_json,
+    load_data, inspect_json, get_supported_langs,
     generate_csv_report, generate_excel_report,
     INDEX_REGISTRY, DEFAULT_JSON_PATH,
 )
@@ -92,19 +92,16 @@ class App(ctk.CTk):
                       command=lambda: [v.set(False) for v in self.index_vars.values()]).pack(side="left")
 
         # --- Language ---
-        lang_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        lang_frame.grid(row=1, column=1, padx=12, pady=(0, 10), sticky="nw")
+        lang_outer = ctk.CTkFrame(frame, fg_color="transparent")
+        lang_outer.grid(row=1, column=1, padx=12, pady=(0, 10), sticky="nw")
 
-        ctk.CTkLabel(lang_frame, text="Lingua", font=ctk.CTkFont(size=13)).pack(anchor="w", pady=(0, 4))
+        ctk.CTkLabel(lang_outer, text="Lingua", font=ctk.CTkFont(size=13)).pack(anchor="w", pady=(0, 4))
 
         self.lang_vars = {}
-        for val, label in [("it", "Italiano"), ("en", "Inglese")]:
-            var = ctk.BooleanVar(value=True)
-            self.lang_vars[val] = var
-            ctk.CTkCheckBox(lang_frame, text=label, variable=var,
-                            command=self._on_lang_change).pack(anchor="w", pady=2)
+        self.lang_frame = ctk.CTkFrame(lang_outer, fg_color="transparent")
+        self.lang_frame.pack(anchor="w", fill="x")
 
-        lang_btn_row = ctk.CTkFrame(lang_frame, fg_color="transparent")
+        lang_btn_row = ctk.CTkFrame(lang_outer, fg_color="transparent")
         lang_btn_row.pack(anchor="w", pady=(8, 0))
         ctk.CTkButton(lang_btn_row, text="Seleziona tutti", width=70, height=26,
                       command=lambda: [v.set(True) for v in self.lang_vars.values()]).pack(side="left", padx=(0, 4))
@@ -177,6 +174,7 @@ class App(ctk.CTk):
         self.log_box = ctk.CTkTextbox(frame, state="disabled", font=ctk.CTkFont(size=12))
         self.log_box.grid(row=1, column=0, padx=12, pady=(0, 10), sticky="nsew")
         self.log_box._textbox.tag_configure("error", foreground="#E53935")
+        self.log_box._textbox.tag_configure("warning", foreground="#FF8C00")
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -187,12 +185,16 @@ class App(ctk.CTk):
 
     def _log(self, msg):
         is_error = msg.startswith("ERRORE") or msg.startswith("ATTENZIONE")
+        is_warning = msg.startswith("AVVISO")
         self.log_box.configure(state="normal")
         start = self.log_box._textbox.index("end-1c")
         self.log_box.insert("end", msg + "\n")
         if is_error:
             end = self.log_box._textbox.index("end-1c")
             self.log_box._textbox.tag_add("error", start, end)
+        elif is_warning:
+            end = self.log_box._textbox.index("end-1c")
+            self.log_box._textbox.tag_add("warning", start, end)
         self.log_box.see("end")
         self.log_box.configure(state="disabled")
         self.update_idletasks()
@@ -211,10 +213,29 @@ class App(ctk.CTk):
             self.data = load_data(path)
             self.structure = inspect_json(self.data)
             self._update_corpus_info()
-            self._update_category_menus()
+            supported = get_supported_langs(self.data)
+            self._rebuild_lang_checkboxes(supported)
             self._log(f"JSON caricato: {path}")
+            for code in sorted(set(self.data.keys()) - set(supported)):
+                self._log(
+                    f"AVVISO: lingua '{code}' rilevata nel JSON ma non supportata "
+                    f"da alcun indice. Non sarà disponibile per la generazione del report."
+                )
         except Exception as e:
             self._log(f"ERRORE caricamento JSON: {e}")
+
+    def _rebuild_lang_checkboxes(self, langs):
+        for widget in self.lang_frame.winfo_children():
+            widget.destroy()
+        self.lang_vars = {}
+        for code in langs:
+            var = ctk.BooleanVar(value=True)
+            self.lang_vars[code] = var
+            ctk.CTkCheckBox(
+                self.lang_frame, text=code, variable=var,
+                command=self._on_lang_change
+            ).pack(anchor="w", pady=2)
+        self._update_category_menus()
 
     def _update_corpus_info(self):
         langs = list(self.structure.keys())
@@ -231,7 +252,7 @@ class App(ctk.CTk):
     def _update_category_menus(self):
         selected = self._selected_langs()
         merged = {}
-        for lang in (selected if selected else self.structure.keys()):
+        for lang in (selected if selected else list(self.lang_vars.keys())):
             for grp, subs in self.structure.get(lang, {}).items():
                 merged.setdefault(grp, set()).update(subs)
         cats = sorted(merged.keys())
@@ -257,7 +278,7 @@ class App(ctk.CTk):
     def _on_cat_select(self, selected_cat):
         selected = self._selected_langs()
         subs: set = set()
-        for lang in (selected if selected else self.structure.keys()):
+        for lang in (selected if selected else list(self.lang_vars.keys())):
             subs.update(self.structure.get(lang, {}).get(selected_cat, []))
 
         subs_list = sorted(subs)
@@ -286,7 +307,7 @@ class App(ctk.CTk):
         if not selected_langs:
             self._log("ATTENZIONE: seleziona almeno una lingua.")
             return
-        lang = "all" if set(selected_langs) == set(self.lang_vars.keys()) else selected_langs[0]
+        lang = "all" if set(selected_langs) == set(self.lang_vars.keys()) else selected_langs
         process_all = self.cat_mode_var.get() == "all"
         category = None if process_all else self.cat_menu.get()
         sub_category = None if process_all else self.subcat_menu.get()
