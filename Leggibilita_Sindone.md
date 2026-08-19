@@ -1204,3 +1204,88 @@ Questa fase generalizza la **gestione, la selezione e la pipeline** delle lingue
 - conteggio delle sillabe (nuova funzione o fallback appropriato in `src/utils.py`);
 - verifica dell'accuratezza dei risultati su un corpus reale;
 - eliminazione di eventuali fallback impliciti verso l'inglese presenti nelle funzioni esistenti.
+
+---
+
+### 7.11 Eliminazione dei fallback linguistici impliciti
+
+#### Contesto
+
+La sezione 7.10 citava tra i lavori futuri: "eliminazione di eventuali fallback impliciti verso l'inglese presenti nelle funzioni esistenti". Questa fase porta a compimento quel punto, come prerequisito all'aggiunta di nuove lingue al progetto.
+
+#### Problema
+
+Nelle funzioni di calcolo di `src/utils.py` e `src/indices.py`, il ramo `else` era strutturalmente equivalente a "non italiano → inglese":
+
+- `average_syllables_per_word`: `if lang == "it": ... else: sum(count_syllables_en(...))`
+- `count_complex_words`: ternario `count_syllables_it if lang == "it" else count_syllables_en`
+- `flesch_index`: `if lang == "it": ... else:  # English`
+
+Fintanto che le sole lingue erano `it` e `en`, questo era funzionalmente corretto. Con l'architettura N-lingua introdotta in §7.10, una terza lingua come `"fr"` avrebbe percorso silenziosamente il ramo `else`, usando sillabazione e coefficienti inglesi senza alcun avviso né errore.
+
+`gunning_fog_index` non conteneva branching linguistico proprio: delegava interamente a `count_complex_words`, dove risiedeva il fallback. `gulpease_index` non accetta `lang` e non è interessato: la protezione è già garantita dal guard `INDEX_LANGS` nella pipeline.
+
+#### Soluzione
+
+Per ciascuna delle tre funzioni con `else` implicito, il ramo è stato reso esplicito:
+
+```python
+# PRIMA
+if lang == "it":
+    ...
+else:   # silenziosamente inglese per qualsiasi altra lingua
+    ...
+
+# DOPO
+if lang == "it":
+    ...
+elif lang == "en":
+    ...
+else:
+    raise ValueError(
+        f"Language '{lang}' is not supported ... Supported languages: 'it', 'en'."
+    )
+```
+
+File modificati: solo `src/utils.py` e `src/indices.py`. Nessuna modifica a `core.py`, `gui.py`, `INDEX_LANGS`, `INDEX_REGISTRY` o alle formule/algoritmi esistenti.
+
+Il valore di default `lang="en"` nelle firme delle funzioni è stato mantenuto per retrocompatibilità dell'API: una chiamata che omette `lang` si comporta ancora come prima. L'errore viene sollevato solo quando viene passato esplicitamente un valore non riconosciuto.
+
+Per `gunning_fog_index` con lingua non supportata il `ValueError` proviene da `count_complex_words`, con messaggio esplicito. Non è stato aggiunto un controllo ridondante in `gunning_fog_index` poiché il flusso normale della pipeline non raggiunge mai queste funzioni con lingue non dichiarate (il guard `INDEX_LANGS` in `_collect_results` produce `"N/A"` senza chiamare le formule).
+
+#### Comportamento post-modifica
+
+| `lang` | Comportamento |
+|--------|---------------|
+| `"it"` | italiano, identico a prima |
+| `"en"` | inglese, identico a prima |
+| omesso (default) | `lang="en"` → inglese, identico a prima |
+| qualsiasi altro valore esplicito | `ValueError` con messaggio esplicito |
+
+#### Verifica effettuata
+
+**Test diretti — 16/16 superati:**
+
+| Funzione | `"it"` | `"en"` | omesso | lingua non supportata |
+|----------|--------|--------|--------|-----------------------|
+| `average_syllables_per_word` | OK | OK | == `"en"` ✓ | ValueError ✓ |
+| `count_complex_words` | OK | OK | == `"en"` ✓ | ValueError ✓ |
+| `flesch_index` | OK | OK | == `"en"` ✓ | ValueError (da `average_syllables_per_word`) ✓ |
+| `gunning_fog_index` | OK | OK | == `"en"` ✓ | ValueError (da `count_complex_words`) ✓ |
+
+**Regressione numerica sul corpus reale (`content.json`):**
+
+La versione pre-modifica è stata recuperata tramite `git show HEAD` in un modulo Python temporaneo; i valori prodotti sono stati confrontati opera per opera con quelli della versione post-modifica.
+
+| Misura | Valore |
+|--------|--------|
+| Lingue confrontate | `it`, `en` |
+| Indici confrontati | `gulpease`, `flesch`, `gunning_fog` |
+| Opere confrontate | 80 |
+| Valori numerici confrontati | 200 |
+| Differenze trovate | **0** |
+| Differenza massima | **0** |
+
+**Pipeline completa:** `python main.py` completato senza errori. CSV e XLSX generati correttamente.
+
+**JSON it/en/de:** `get_supported_langs` restituisce `['en', 'it']`; `"de"` non ricade sul comportamento inglese, non è resa selezionabile nella GUI, l'AVVISO arancione introdotto in §7.10 resta invariato.

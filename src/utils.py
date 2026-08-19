@@ -134,8 +134,13 @@ def average_syllables_per_word(text, lang="en"):
 
     if lang == "it":
         total_syllables = sum(count_syllables_it(word) for word in words)
-    else:
+    elif lang == "en":
         total_syllables = sum(count_syllables_en(word) for word in words)
+    else:
+        raise ValueError(
+            f"Language '{lang}' is not supported for syllable counting. "
+            f"Supported languages: 'it', 'en'."
+        )
     return total_syllables / n_words
 
 def count_complex_words(text, lang="en"):
@@ -146,7 +151,15 @@ def count_complex_words(text, lang="en"):
     starts with a capital letter and is not the first word of its sentence,
     per the Gunning Fog "complex word" definition.
     """
-    syllable_counter = count_syllables_it if lang == "it" else count_syllables_en
+    if lang == "it":
+        syllable_counter = count_syllables_it
+    elif lang == "en":
+        syllable_counter = count_syllables_en
+    else:
+        raise ValueError(
+            f"Language '{lang}' is not supported for complex word counting. "
+            f"Supported languages: 'it', 'en'."
+        )
     complex_count = 0
     for sentence in re.split(r'[.!?]+', text):
         for i, word in enumerate(sentence.split()):

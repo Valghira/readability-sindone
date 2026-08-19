@@ -46,8 +46,13 @@ def flesch_index(text, lang="en"):
 
     if lang == "it":
         flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
-    else:  # English
+    elif lang == "en":
         flesch_score = 206.835 - (84.6 * avg_syllables_per_word) - (1.015 * avg_words_per_sentence)
+    else:
+        raise ValueError(
+            f"Language '{lang}' is not supported by flesch_index. "
+            f"Supported languages: 'it', 'en'."
+        )
 
     return flesch_score
 
