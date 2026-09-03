@@ -64,6 +64,11 @@ def letter_count(text):
     return sum(1 for char in text if char.isalpha())
 
 dic_it = pyphen.Pyphen(lang="it_IT", left=1)
+dic_fr = pyphen.Pyphen(lang="fr", left=1, right=1)
+dic_es = pyphen.Pyphen(lang="es", left=1)
+
+_VOWELS_BASE = set("aeiouy")
+_FR_ELISION_CHARS = frozenset("’‘'")  # U+2019 RIGHT SINGLE QUOTATION MARK (corpus fr), ASCII apostrophe
 
 def count_syllables_it(word):
     """Count syllables for Italian using Pyphen's built-in it_IT dictionary with left=1."""
@@ -105,6 +110,85 @@ def count_syllables_en(word):
                 prev_vowel = False
         return max(count, 1)
 
+def _vowel_groups_mute_e_fr(word):
+    """Count pronounced vowel nuclei in a French word, excluding mute final unaccented 'e'."""
+    clean = word.lower()
+    mute_idx = None
+    if len(clean) >= 2 and clean[-1] == 'e':
+        if unicodedata.normalize("NFD", clean[-2])[0] not in _VOWELS_BASE:
+            mute_idx = len(clean) - 1
+    count, prev_v = 0, False
+    for i, c in enumerate(clean):
+        if i == mute_idx:
+            prev_v = False
+            continue
+        b = unicodedata.normalize("NFD", c)[0]
+        is_v = b in _VOWELS_BASE
+        if is_v and not prev_v:
+            count += 1
+        prev_v = is_v
+    return count
+
+def count_syllables_fr(word):
+    """Count syllables for French using Pyphen fr + two corrections.
+
+    Correction 1 — Elision (U+2019): clitic tokens like l’avocat use
+    the typographic apostrophe at position 1-2.  Count syllables of the
+    remainder since the clitic merges phonologically with the following word.
+    Tokens with the apostrophe further in (aujourd’hui, jusqu’en)
+    are left intact.
+
+    Correction 2 — Isolated open initial syllable (V+C+V pattern): Pyphen fr
+    has no position-1 break points, undercounting ‘ami’ (2), ‘etude’ (2),
+    ‘animal’ (3).  One syllable is added only when the pattern is V+C+V (open
+    initial syllable), not V+C+C (closed syllable like ‘ob’ in ‘observation’,
+    which Pyphen already counts correctly).  Nasal prefixes (‘en-’, ‘an-’) are
+    excluded automatically because their third character is a consonant.
+    """
+    clean_word = word.strip(string.punctuation + "“”‘’")
+    if not clean_word:
+        return 1
+    # Correction 1: French elision — strip clitic at position 1-2 and recurse
+    for i, c in enumerate(clean_word):
+        if c in _FR_ELISION_CHARS and 0 < i <= 2 and i < len(clean_word) - 1:
+            remainder = clean_word[i + 1:]
+            return count_syllables_fr(remainder) if remainder else 1
+    count = max(len(dic_fr.inserted(clean_word).split("-")), 1)
+    if len(clean_word) < 3:
+        return count
+    positions = dic_fr.positions(clean_word)
+    first_break = positions[0] if positions else len(clean_word)
+    c0 = unicodedata.normalize("NFD", clean_word[0].lower())[0]
+    c1 = unicodedata.normalize("NFD", clean_word[1].lower())[0]
+    c2 = unicodedata.normalize("NFD", clean_word[2].lower())[0]
+    # Correction 2a: V+C+V open-syllable — Pyphen fr lacks position-1 breaks
+    vcv = (c0 in _VOWELS_BASE and c1 not in _VOWELS_BASE
+           and c2 in _VOWELS_BASE and first_break >= 2)
+    # Correction 2b: V+C+C when Pyphen returns exactly 1 (no break found at all)
+    # Covers clusters like V+pr, V+cr, V+vr, V+th, V+ll where the initial vowel
+    # is an isolated syllable but the consonant cluster blocks Pyphen's lookup.
+    # Nasal prefix guard (V+n/m+C) prevents overcounting for words like 'anges'.
+    nasal = c1 in {"n", "m"} and c2 not in _VOWELS_BASE
+    vcc1 = (c0 in _VOWELS_BASE and c1 not in _VOWELS_BASE
+            and c2 not in _VOWELS_BASE and count == 1 and not nasal)
+    if (vcv or vcc1) and _vowel_groups_mute_e_fr(clean_word) >= 2:
+        count += 1
+    return count
+
+def count_syllables_es(word):
+    """Count syllables for Spanish using Pyphen es with left=1."""
+    clean_word = word.strip(string.punctuation + "“”‘’")
+    if not clean_word:
+        return 1
+    return max(len(dic_es.inserted(clean_word).split("-")), 1)
+
+_SYLLABLE_COUNTERS = {
+    "it": count_syllables_it,
+    "en": count_syllables_en,
+    "fr": count_syllables_fr,
+    "es": count_syllables_es,
+}
+
 
 def average_words_per_sentence(text):
     """
@@ -131,16 +215,13 @@ def average_syllables_per_word(text, lang="en"):
     n_words = word_count(text)
     if n_words == 0:
         return None
-
-    if lang == "it":
-        total_syllables = sum(count_syllables_it(word) for word in words)
-    elif lang == "en":
-        total_syllables = sum(count_syllables_en(word) for word in words)
-    else:
+    counter = _SYLLABLE_COUNTERS.get(lang)
+    if counter is None:
         raise ValueError(
             f"Language '{lang}' is not supported for syllable counting. "
-            f"Supported languages: 'it', 'en'."
+            f"Supported languages: {sorted(_SYLLABLE_COUNTERS)}."
         )
+    total_syllables = sum(counter(word) for word in words)
     return total_syllables / n_words
 
 def count_complex_words(text, lang="en"):
@@ -151,14 +232,11 @@ def count_complex_words(text, lang="en"):
     starts with a capital letter and is not the first word of its sentence,
     per the Gunning Fog "complex word" definition.
     """
-    if lang == "it":
-        syllable_counter = count_syllables_it
-    elif lang == "en":
-        syllable_counter = count_syllables_en
-    else:
+    syllable_counter = _SYLLABLE_COUNTERS.get(lang)
+    if syllable_counter is None:
         raise ValueError(
             f"Language '{lang}' is not supported for complex word counting. "
-            f"Supported languages: 'it', 'en'."
+            f"Supported languages: {sorted(_SYLLABLE_COUNTERS)}."
         )
     complex_count = 0
     for sentence in re.split(r'[.!?]+', text):
