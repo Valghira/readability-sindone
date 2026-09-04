@@ -1289,3 +1289,222 @@ La versione pre-modifica è stata recuperata tramite `git show HEAD` in un modul
 **Pipeline completa:** `python main.py` completato senza errori. CSV e XLSX generati correttamente.
 
 **JSON it/en/de:** `get_supported_langs` restituisce `['en', 'it']`; `"de"` non ricade sul comportamento inglese, non è resa selezionabile nella GUI, l'AVVISO arancione introdotto in §7.10 resta invariato.
+
+---
+
+### 7.12 Estensione della sillabazione al francese e allo spagnolo
+
+#### Contesto e separazione metodologica
+
+La sezione §7.11 ha eliminato i fallback impliciti verso l'inglese nelle funzioni di `src/utils.py`, rendendo esplicito che qualsiasi lingua non dichiarata solleva un `ValueError`. Questo ha reso sicuro aggiungere nuove lingue: ogni nuova funzione sillabica viene riconosciuta correttamente dal registry senza il rischio di percorsi non previsti.
+
+Questa fase aggiunge il supporto al conteggio delle sillabe per il francese (`"fr"`) e lo spagnolo (`"es"`). È importante distinguere due livelli di supporto che restano separati al termine della fase:
+
+- **Utility sillabica disponibile**: `_SYLLABLE_COUNTERS` in `src/utils.py` contiene funzioni di conteggio per tutte e quattro le lingue — `it`, `en`, `fr`, `es`. Le chiamate dirette a `average_syllables_per_word` o `count_complex_words` con `lang="fr"` o `lang="es"` sono ora supportate.
+- **Indice effettivamente abilitato**: `INDEX_LANGS` in `src/core.py` rimane invariato. La pipeline produce `"N/A"` per le combinazioni indice-lingua non in `INDEX_LANGS`, senza mai chiamare le formule.
+
+| Indice | IT | EN | FR | ES |
+|--------|:--:|:--:|:--:|:--:|
+| Gulpease | ✓ | — | — | — |
+| Flesch | ✓ | ✓ | — | — |
+| Gunning Fog | ✓ | ✓ | — | — |
+| Utility sillabica | ✓ | ✓ | ✓ | ✓ |
+
+L'estensione degli indici Flesch al francese e allo spagnolo richiede la verifica dei coefficienti da fonte primaria (rispettivamente Kandel-Moles 1958 e Fernández-Huerta 1959) e non è ancora stata implementata.
+
+#### Refactoring: `_SYLLABLE_COUNTERS` come registry
+
+Prima di questa fase, `average_syllables_per_word` e `count_complex_words` contenevano un branching esplicito `if lang == "it" / elif lang == "en"`. Aggiungere una terza lingua avrebbe richiesto modificare due punti separati e avrebbe reintrodotto il problema della logica duplicata eliminato in §7.11.
+
+La soluzione adottata è un dizionario di dispatch a livello di modulo in `src/utils.py`:
+
+```python
+_SYLLABLE_COUNTERS = {
+    "it": count_syllables_it,
+    "en": count_syllables_en,
+    "fr": count_syllables_fr,
+    "es": count_syllables_es,
+}
+```
+
+Le funzioni consumano il registry con un unico `get`:
+
+```python
+counter = _SYLLABLE_COUNTERS.get(lang)
+if counter is None:
+    raise ValueError(
+        f"Language '{lang}' is not supported for syllable counting. "
+        f"Supported languages: {sorted(_SYLLABLE_COUNTERS)}."
+    )
+total_syllables = sum(counter(word) for word in words)
+```
+
+Aggiungere una nuova lingua richiede ora una sola modifica — inserire una voce in `_SYLLABLE_COUNTERS` — senza toccare le funzioni che lo usano. I percorsi `"it"` e `"en"` attraversano le stesse funzioni di prima: **zero regressione numerica**, verificata sul corpus completo (§ Risultati).
+
+#### Spagnolo
+
+Per lo spagnolo viene usata l'istanza pyphen con il dizionario bundled `"es"`:
+
+```python
+dic_es = pyphen.Pyphen(lang="es", left=1)
+```
+
+Il parametro `left=1` è stato scelto sperimentalmente, seguendo la stessa logica della sillabazione italiana (§7.7): con il valore predefinito `left=2`, pyphen filtra i break points in posizione 1, sottocontando le parole che iniziano con una vocale seguita da consonante (`otoño`, `Europa`, `acción`, …). Un confronto su campione ha verificato tre configurazioni:
+
+| `left` | Errori su campione RAE (9 parole) | Osservazione |
+|--------|-----------------------------------|--------------|
+| `left=1` | 0 / 9 | Configurazione adottata |
+| `left=2` | 2 / 9 | Sottoconteggio vocale iniziale isolata |
+| `left=3` | 3 / 9 | Sottoconteggio più pronunciato |
+
+**Risultato:** 9/9 PASS sul campione di riferimento RAE.
+
+**Limite noto:** `museo` produce 2 segmenti invece delle 3 sillabe attese (mu-sé-o). Il dizionario di ifenazione usato da pyphen non introduce in questo caso tutti i punti di separazione necessari al conteggio sillabico: la distinzione tra dittongo e iato richiede conoscenza fonologica che i pattern di ifenazione tipografica non sempre codificano (v. §7.7). Questo limite è indipendente dal parametro `left`. La funzione `count_syllables_es` non introduce correzioni euristiche: per lo spagnolo il dizionario pyphen si è rivelato sufficientemente accurato sul campione analizzato.
+
+#### Francese — perché pyphen puro non è sufficiente
+
+Il caso francese è strutturalmente diverso da quello spagnolo. Come spiegato in §7.7, pyphen è uno strumento di ifenazione tipografica: il parametro `left` controlla la lunghezza minima del primo segmento per ragioni tipografiche. Per l'italiano, impostare `left=1` è stato sufficiente perché il dizionario Hunspell `it_IT` contiene break points in posizione 1 per le parole che iniziano con vocale — `left=1` ha semplicemente smesso di filtrarli.
+
+Per il francese il problema è diverso: il dizionario Hunspell `fr` **non contiene break points a posizione 1 per nessuna parola**, indipendentemente dal valore di `left`. Le parole che iniziano con una vocale seguita da consonante — `ami`, `étude`, `animal`, `image`, `étoile`, `amour`, `avoir`, … — hanno la prima sillaba come singola vocale, ma il dizionario non registra quel punto di separazione. Abbassare `left` non aiuta: il dato semplicemente non è presente.
+
+Verifica iniziale su un campione di 24 parole verificate su Wiktionnaire (trascrizioni IPA):
+
+| Metodo | Errori su 24 parole | Natura degli errori |
+|--------|---------------------|---------------------|
+| Pyphen fr puro (`left=1`) | 8 / 24 | Tutte: vocale iniziale isolata sottocontata di 1 |
+| Conteggio gruppi vocalici (fallback) | 10 / 24 | Sovracconto su 'e' muta, nasali, dittonghi |
+
+Nessuno dei due approcci di base è applicabile direttamente: il primo sottoconteggia sistematicamente, il secondo sovracconta su categorie frequenti. È stata quindi sviluppata un'euristica specifica per il francese.
+
+#### Francese — evoluzione dell'euristica
+
+**v1 — correzione V+C:** correzione +1 quando i primi tre caratteri della parola seguono il pattern vocale+consonante (V+C). Il campione di 24 parole scende a 0 errori, ma il corpus reale rivela falsi positivi: `observation` (ob-ser-va-tion, 4 sillabe) diventa 5, `Agrandissement` (6 sillabe) diventa 7. Il pattern V+C scatta anche per sillabe iniziali *chiuse* come `ob-`, `ar-`, `ex-`, che pyphen già conteggia correttamente perché il break point a posizione 2 è presente nel dizionario.
+
+**Analisi del corpus reale:** il test su `content_it_en_fr_es.json` ha rivelato due anomalie sistematiche non emerse sul campione iniziale di 24 parole.
+
+*Anomalia A — Elisione con apostrofo tipografico (U+2019).* Il corpus francese usa sistematicamente il RIGHT SINGLE QUOTATION MARK (U+2019) per i clitici: `l'avocat`, `l'État`, `d'Orient`, `s'agit`, … Pyphen tratta questi token come parole intere e conta anche le sillabe del clitic (`l`, `d`, `s`). La soluzione è rilevare U+2019 — e l'apostrofo ASCII per robustezza — a posizione 1–2 nel token e ricorrere su `count_syllables_fr(resto)`: il clitic si fonde fonologicamente con la parola seguente e non contribuisce al conteggio.
+
+*Anomalia B — Falsi positivi V+C+C.* La correzione v1 attivava il +1 anche per il pattern V+C+C (sillaba iniziale chiusa), già trattato correttamente da pyphen grazie al break point in posizione 2. La correzione deve distinguere i due pattern:
+
+| Pattern | Esempio | pyphen | Correzione |
+|---------|---------|--------|-----------|
+| V+C+V (sillaba aperta) | `ami` → a-mi | sottocontato | necessaria |
+| V+C+C (sillaba chiusa) | `observation` → ob-... | corretto | non necessaria |
+
+**v3 (fix Anomalie A+B):** implementa due correzioni:
+
+```
+Correzione 1 — Elisione: rilevare apostrofo tipografico/ASCII a posizione 1–2 del
+               token (dopo strip punteggiatura), rimuovere il clitic e ricorrere
+               su count_syllables_fr(resto). Token con apostrofo a posizione > 2
+               (aujourd'hui, jusqu'en) vengono lasciati intatti.
+
+Correzione 2a — V+C+V: aggiungere 1 quando i primi tre caratteri (dopo NFD)
+                seguono il pattern vocale+consonante+vocale e pyphen non ha
+                trovato un break point in posizione 1. Il terzo carattere vocale
+                conferma la sillaba aperta; i prefissi nasali (en-, an-) sono
+                esclusi automaticamente perché il loro terzo carattere è una
+                consonante.
+```
+
+Sul campione Wiktionnaire di 50 parole l'analisi ha individuato 5 parole ancora sottocontate nel corpus reale: `après`, `avril`, `écrits`, `Athènes`, `illustre`. Sono tutte parole con pattern V+C+C iniziale dove il cluster consonantico (pr, vr, cr, th, ll) impedisce a pyphen di trovare qualsiasi break point: pyphen restituisce conteggio 1, ma la parola è polisillaba. Il risultato complessivo sul campione è riportato nella sezione "Francese — risultati dei test" che segue.
+
+**v3c — versione finale implementata:** mantiene le correzioni 1 e 2a di v3 e aggiunge:
+
+```
+Correzione 2b — V+C+C con pyphen count=1: aggiungere 1 quando il pattern iniziale
+                è vocale+consonante+consonante (V+C+C) E pyphen restituisce
+                esattamente 1 (nessun break trovato nell'intera parola). La
+                condizione count==1 distingue le parole per cui pyphen fallisce
+                completamente (après, écrits) da quelle che iniziano con sillaba
+                chiusa ma hanno break points successivi (observation, count=4).
+
+                Guardia nasale: c1 ∈ {n, m} e c2 non vocale → correzione non
+                applicata. Esclude parole come anges ([ɑ̃ʒ], 1 sillaba) dove il
+                prefisso V+n+C è una vocale nasale, non una sillaba aperta.
+
+                Guardia monosillabicità: _vowel_groups_mute_e_fr(parola) >= 2.
+                Il helper conta i nuclei vocalici pronunciati, escludendo la 'e'
+                finale muta. Se il risultato è < 2, la parola è realmente
+                monosillaba e la correzione non viene applicata.
+```
+
+L'implementazione completa in `src/utils.py`:
+
+```python
+# Correction 2a: V+C+V open-syllable
+vcv = (c0 in _VOWELS_BASE and c1 not in _VOWELS_BASE
+       and c2 in _VOWELS_BASE and first_break >= 2)
+# Correction 2b: V+C+C when Pyphen returns exactly 1 (no break found at all)
+nasal = c1 in {"n", "m"} and c2 not in _VOWELS_BASE
+vcc1 = (c0 in _VOWELS_BASE and c1 not in _VOWELS_BASE
+        and c2 not in _VOWELS_BASE and count == 1 and not nasal)
+if (vcv or vcc1) and _vowel_groups_mute_e_fr(clean_word) >= 2:
+    count += 1
+```
+
+**Esempi di guardie attive:**
+
+| Parola | count pyphen | Condizione | Esito |
+|--------|:------------:|------------|-------|
+| `après` | 1 | V+C+C, count=1, non nasale, ≥ 2 nuclei | +1 → 2 ✓ |
+| `avril` | 1 | V+C+C, count=1, non nasale, ≥ 2 nuclei | +1 → 2 ✓ |
+| `anges` | 1 | c1='n' ∈ {n,m} → guardia nasale | invariato → 1 ✓ |
+| `observation` | 4 | count=4 ≠ 1 → 2b non scatta | invariato → 4 ✓ |
+| `agrandissement` | 4 | count=4 ≠ 1 → 2b non scatta | invariato → 4 ✓ |
+| `inspirées` | 3 | count=3 ≠ 1 → 2b non scatta | invariato → 3 ✓ |
+
+#### Francese — risultati dei test
+
+| Sezione | Risultato |
+|---------|-----------|
+| T-FR-WIKT — campione Wiktionnaire 50 parole | 49/50 corretti; 1 errore noto |
+| T-FR-ELISION — 64 token U+2019 nel corpus | 0 errori (16 monosillabi post-elisione corretti) |
+| T-FR-CORPUS — guardie double-correction | 0 doppie correzioni rilevate |
+| T-ES — campione RAE 9 parole | 9/9 PASS |
+| T-REG IT/EN — 876 frasi corpus | **0 differenze** |
+
+**Caso residuo nel campione Wiktionnaire.** `aujourd'hui` restituisce 3 sillabe invece di 4: è l'unico errore sul campione. La parola contiene U+2019 a posizione 8 — ben oltre la soglia di elisione a posizione 1–2 — e il dizionario di sillabazione usato da pyphen non produce il conteggio corretto per questo token con apostrofo tipografico. L'errore non è riconducibile alle correzioni euristiche introdotte: modificarle non lo correggerebbe.
+
+**Casi residui noti non corretti dall'implementazione attuale:**
+
+| Parola | Pyphen | Corretto | Causa |
+|--------|:------:|:--------:|-------|
+| `connaissance` | 2 | 3 | Pyphen/Hunspell fr non produce il conteggio atteso |
+| `Constantinople` | 3 | 4 | Pyphen/Hunspell fr non produce il conteggio atteso |
+| `aujourd'hui` | 3 | 4 | Pyphen/Hunspell fr + apostrofo U+2019 a posizione > 2 |
+
+I tre casi residui non sono corretti dalle correzioni euristiche implementate: il risultato prodotto da pyphen per queste parole rimane invariato indipendentemente dalle correzioni applicate. Non sono state introdotte eccezioni hardcoded per singole parole.
+
+**Parole migliorate da v3 a v3c:** `après`, `avril`, `écrits`, `Athènes`, `illustre`, e le forme con elisione che li precedono (es. `l'échelle`, `l'église`).
+
+**Statistiche corpus francese** (da `content_it_en_fr_es.json`):
+
+| Metrica | Valore |
+|---------|--------|
+| Token totali corpus FR | 8.760 |
+| Sillabe totali | 14.412 |
+| Media sillabe/parola | 1,6452 |
+
+#### Corpus e test strutturali
+
+Il file `file_to_process/content_it_en_fr_es.json` è il corpus parallelo a quattro lingue usato per validare l'estensione FR/ES. La struttura è identica a `content.json`: `lang → age_group → categoria → opere → frasi`. Il file non sostituisce `content.json` come corpus predefinito della pipeline — `DEFAULT_JSON_PATH` in `src/core.py` rimane invariato — ma è necessario per:
+
+- analizzare il vocabolario francese reale e verificare l'euristica sul testo autentico del museo, non solo sul campione controllato;
+- misurare la regressione IT/EN su un corpus più ampio (876 frasi contro le 80 di `content.json`);
+- verificare che le modifiche alla sillabazione francese non abbiano effetti collaterali sulla sillabazione spagnola.
+
+#### Stato finale della fase
+
+| Componente | Stato |
+|------------|-------|
+| `count_syllables_it` | Invariata (§7.7) |
+| `count_syllables_en` | Invariata (§7.9) |
+| `count_syllables_fr` | Nuova (v3c): elisione + V+C+V + V+C+C/count=1 |
+| `count_syllables_es` | Nuova: Pyphen es, `left=1` |
+| `_SYLLABLE_COUNTERS` | Nuovo registry `{it, en, fr, es}` |
+| `average_syllables_per_word` | Refactored via registry — retrocompatibile |
+| `count_complex_words` | Refactored via registry — retrocompatibile |
+| `INDEX_LANGS["gulpease"]` | `{"it"}` — invariato |
+| `INDEX_LANGS["flesch"]` | `{"it", "en"}` — invariato |
+| `INDEX_LANGS["gunning_fog"]` | `{"it", "en"}` — invariato |

@@ -13,9 +13,11 @@ readability-sindone/
 ├── src/
 │   ├── core.py              # INDEX_REGISTRY, caricamento dati, generate_csv/excel_report
 │   ├── indices.py           # Formule: gulpease_index, flesch_index, gunning_fog_index
-│   └── utils.py             # Metriche di testo: parole, frasi, lettere, sillabe
+│   └── utils.py             # Metriche di testo: parole, frasi, lettere, sillabe;
+│                            #   _SYLLABLE_COUNTERS: registry per lingua (it/en/fr/es)
 ├── file_to_process/
-│   └── content.json         # Corpus: lang → age_group → categoria → opere → frasi
+│   ├── content.json               # Corpus default: lang → age_group → categoria → opere → frasi
+│   └── content_it_en_fr_es.json  # Corpus parallelo a 4 lingue (it, en, fr, es); validazione FR/ES
 └── reports/                 # Report generati (esclusi da git)
 ```
 
@@ -30,7 +32,7 @@ Il registro degli indici in `src/core.py` separa le formule (`INDEX_REGISTRY`) d
 
 | Pacchetto | Uso |
 |---|---|
-| `pyphen` | Sillabazione italiana tramite dizionario integrato (`it_IT`) |
+| `pyphen` | Sillabazione italiana (`it_IT`, `left=1`), francese (`fr`, `left=1,right=1`) e spagnola (`es`, `left=1`); logica specifica per lingua in `src/utils.py` |
 | `cmudict` | Sillabazione inglese tramite CMU Pronouncing Dictionary |
 | `textstat` | Utilità di supporto per metriche testuali |
 | `pandas` | Manipolazione dati tabellari |
@@ -109,7 +111,15 @@ L'interfaccia è organizzata in quattro pannelli:
 
 ## Limiti e sviluppi futuri
 
-**Lingue supportate** — La GUI rileva dinamicamente le lingue presenti nel JSON e mostra come selezionabili solo quelle supportate da almeno un indice (criterio definito in `INDEX_LANGS` in `src/core.py`). Aggiungere una nuova lingua richiede di estendere: le formule in `src/indices.py` e `INDEX_LANGS` per la compatibilità indice-lingua, e la sillabazione in `src/utils.py`. L'infrastruttura di selezione e pipeline supporta già N lingue senza modifiche alla GUI. Le funzioni di calcolo in `src/utils.py` (`average_syllables_per_word`, `count_complex_words`) e in `src/indices.py` (`flesch_index`) gestiscono esplicitamente soltanto `"it"` e `"en"`: una lingua non riconosciuta passata direttamente a queste funzioni solleva un `ValueError` con messaggio esplicito invece di ricadere silenziosamente sul comportamento inglese. Il parametro `lang="en"` nelle firme è mantenuto per retrocompatibilità. Il flusso normale della pipeline è già protetto a monte dal guard `INDEX_LANGS` in `_collect_results`.
+**Lingue supportate** — Le utility di sillabazione (`_SYLLABLE_COUNTERS` in `src/utils.py`) supportano quattro lingue: `it`, `en`, `fr`, `es`. Gli indici sono abilitati per un sottoinsieme, definito da `INDEX_LANGS` in `src/core.py`:
+
+| Indice | IT | EN | FR | ES |
+|--------|:--:|:--:|:--:|:--:|
+| Gulpease | ✓ | — | — | — |
+| Flesch | ✓ | ✓ | — | — |
+| Gunning Fog | ✓ | ✓ | — | — |
+
+La GUI rileva dinamicamente le lingue presenti nel JSON e mostra come selezionabili solo quelle supportate da almeno un indice. L'infrastruttura di selezione e pipeline supporta già N lingue senza modifiche alla GUI. Aggiungere una nuova lingua richiede: la formula in `src/indices.py`, l'aggiornamento di `INDEX_LANGS`, e l'eventuale funzione sillabica in `src/utils.py`. Una lingua non riconosciuta passata direttamente alle funzioni di `src/utils.py` solleva un `ValueError` esplicito; il flusso normale della pipeline è protetto a monte dal guard `INDEX_LANGS` in `_collect_results`. La sillabazione francese è stata validata su un campione Wiktionnaire e sul corpus reale a 4 lingue; restano casi noti non corretti dall'implementazione attuale (`connaissance`, `Constantinople`, `aujourd'hui`), riconducibili ai risultati prodotti da pyphen/Hunspell e non alle correzioni euristiche introdotte. L'estensione Flesch FR/ES non è ancora implementata.
 
 **Flesch italiano (Franchina-Vacca)** — La formula originale prevede il conteggio delle sillabe su un campione di 100 parole consecutive. Poiché la grande maggioranza dei testi del corpus ha meno di 100 parole, l'implementazione attuale usa la media delle sillabe per parola in luogo del campione, rappresentando un'approssimazione rispetto alla specifica originale. *(Fonte: [Wikipedia — Formula di Flesch](https://it.wikipedia.org/wiki/Formula_di_Flesch))*
 
