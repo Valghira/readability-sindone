@@ -28,7 +28,7 @@ INDEX_REGISTRY = {
 # Maps index name → set of languages it supports
 INDEX_LANGS = {
     "gulpease":    {"it"},
-    "flesch":      {"it", "en"},
+    "flesch":      {"it", "en" , "fr"},
     "gunning_fog": {"it", "en"},
 }
 
