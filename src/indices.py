@@ -23,40 +23,42 @@ def gulpease_index(text):
     result = 89 + ((sentence_score - letter_penalty) / n_words)
     return result
 
+FLESCH_PARAMS = {
+    "it": {"C": 206,     "asl": 1.0,   "asw": 0.65},
+    "en": {"C": 206.835, "asl": 1.015, "asw": 84.6},
+    "fr": {"C": 207,     "asl": 1.015, "asw": 73.6},
+}
+
 def flesch_index(text, lang="en"):
     """
     Compute the Flesch readability index based on the language of the text.
+    Formula: C - asl * ASL - asw * ASW, with coefficients from FLESCH_PARAMS.
 
     Parameters:
     -----------
     text : str
         Input text to analyze.
     lang : str
-        'it' for Italian, 'en' for English, 'fr' for French.
+        Language code; must be a key in FLESCH_PARAMS.
 
     Returns:
     --------
-    float
-        Readability index according to Flesch formula.
+    float or None
     """
     avg_words_per_sentence = utils.average_words_per_sentence(text)
     avg_syllables_per_word = utils.average_syllables_per_word(text, lang)
     if avg_words_per_sentence is None or avg_syllables_per_word is None:
-        return None  # Avoid division by zero
+        return None
 
-    if lang == "it":
-        flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
-    elif lang == "en":
-        flesch_score = 206.835 - (84.6 * avg_syllables_per_word) - (1.015 * avg_words_per_sentence)
-    elif lang == "fr":
-        flesch_score = 207 - (1.015 * avg_words_per_sentence) - (73.6 * avg_syllables_per_word)
-    else:
+    params = FLESCH_PARAMS.get(lang)
+    if params is None:
+        supported = ", ".join(f"'{k}'" for k in FLESCH_PARAMS)
         raise ValueError(
             f"Language '{lang}' is not supported by flesch_index. "
-            f"Supported languages: 'it', 'en' , 'fr'."
+            f"Supported languages: {supported}."
         )
 
-    return flesch_score
+    return params["C"] - params["asl"] * avg_words_per_sentence - params["asw"] * avg_syllables_per_word
 
 def gunning_fog_index(text, lang="en"):
     """

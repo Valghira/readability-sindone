@@ -1508,3 +1508,105 @@ Il file `file_to_process/content_it_en_fr_es.json` è il corpus parallelo a quat
 | `INDEX_LANGS["gulpease"]` | `{"it"}` — invariato |
 | `INDEX_LANGS["flesch"]` | `{"it", "en"}` — invariato |
 | `INDEX_LANGS["gunning_fog"]` | `{"it", "en"}` — invariato |
+
+---
+
+### 7.13 Adattamento Flesch francese e refactoring data-driven
+
+#### Adattamento Kandel-Moles e abilitazione del francese
+
+Al termine della fase §7.12, `INDEX_LANGS["flesch"]` conteneva `{"it", "en"}`: la sillabazione francese era disponibile ma Flesch FR non era ancora abilitato. Il passo successivo è stato verificare l'esistenza di un adattamento linguistico appropriato e abilitarlo nella pipeline.
+
+L'adattamento individuato è quello di **Kandel e Moles (1958)**, che mantiene la stessa struttura matematica del Flesch originale con coefficienti adattati al francese:
+
+```text
+207 - 1.015 × ASL - 73.6 × ASW
+```
+
+Struttura identica alla famiglia Flesch: `C - asl × ASL - asw × ASW`. La fonte è stata verificata prima dell'implementazione. L'abilitazione ha richiesto:
+
+1. aggiunta della lingua `"fr"` a `INDEX_LANGS["flesch"]` in `src/core.py`;
+2. implementazione nella funzione `flesch_index()` in `src/indices.py`.
+
+#### Situazione precedente e motivazione del refactoring
+
+Con l'aggiunta del francese, `flesch_index()` conteneva una catena di tre rami:
+
+```python
+if lang == "it":
+    flesch_score = 206 - (0.65 * avg_syllables_per_word) - avg_words_per_sentence
+elif lang == "en":
+    flesch_score = 206.835 - (84.6 * avg_syllables_per_word) - (1.015 * avg_words_per_sentence)
+elif lang == "fr":
+    flesch_score = 207 - (1.015 * avg_words_per_sentence) - (73.6 * avg_syllables_per_word)
+else:
+    raise ValueError(...)
+```
+
+Le tre formule condividono la struttura `C - asl × ASL - asw × ASW`: cambiano solo i coefficienti. Aggiungere una quarta lingua avrebbe significato un quarto `elif`. La ricerca esplorativa preliminare aveva mostrato che numerosi adattamenti Flesch in letteratura mantengono la stessa struttura, suggerendo che una configurazione data-driven fosse più appropriata della catena if/elif.
+
+#### FLESCH_PARAMS e formula generica
+
+Il refactoring ha introdotto un dizionario di configurazione `FLESCH_PARAMS` in `src/indices.py`:
+
+```python
+FLESCH_PARAMS = {
+    "it": {"C": 206,     "asl": 1.0,   "asw": 0.65},
+    "en": {"C": 206.835, "asl": 1.015, "asw": 84.6},
+    "fr": {"C": 207,     "asl": 1.015, "asw": 73.6},
+}
+```
+
+`flesch_index()` usa ora una sola formula generica:
+
+```python
+params = FLESCH_PARAMS.get(lang)
+if params is None:
+    supported = ", ".join(f"'{k}'" for k in FLESCH_PARAMS)
+    raise ValueError(
+        f"Language '{lang}' is not supported by flesch_index. "
+        f"Supported languages: {supported}."
+    )
+return params["C"] - params["asl"] * avg_words_per_sentence - params["asw"] * avg_syllables_per_word
+```
+
+L'elenco delle lingue supportate nel messaggio di errore è derivato dinamicamente da `FLESCH_PARAMS.keys()`, senza duplicare la lista altrove.
+
+#### Principio metodologico
+
+La ricerca sugli adattamenti linguistici ha evidenziato tre situazioni ricorrenti:
+
+1. **Stessa struttura matematica, coefficienti diversi** — esempio tipico: numerosi adattamenti Flesch in letteratura. In questo caso è appropriato un registry di parametri.
+2. **Stessa famiglia di indice, componente diversa** — va valutato caso per caso; non si forza nell'astrazione esistente senza che la leggibilità del codice ne benefici.
+3. **Struttura o feature sostanzialmente differenti** — preferibile una funzione dedicata.
+
+Principio emerso:
+
+> **Generalizzare ciò che è realmente comune, senza generalizzare per forza ciò che comune non è.**
+
+**Gulpease** — La ricerca non ha evidenziato adattamenti linguistici consolidati. L'indice è specifico per l'italiano e `gulpease_index()` non è stato modificato.
+
+**Gunning Fog** — Non è emersa una famiglia omogenea di adattamenti linguistici paragonabile a quella del Flesch. La funzione resta invariata su `{"it", "en"}`.
+
+**Spagnolo** — `_SYLLABLE_COUNTERS` supporta già `"es"`. Non esiste ancora un adattamento Flesch verificato e abilitato per lo spagnolo: `INDEX_LANGS["flesch"]` non include `"es"`. La presenza del sillabatore non implica l'applicabilità automatica dell'indice.
+
+#### Risultati dei test di regressione
+
+I test sono stati eseguiti confrontando i valori prodotti dalla versione con `if/elif` e dalla versione con `FLESCH_PARAMS`:
+
+| Test | Risultato |
+|------|-----------|
+| Confronto numerico it/en/fr (testo campione fisso) | 0 differenze (tolleranza < 1 × 10⁻¹⁰) |
+| ValueError per `lang="es"` (sillabazione presente, Flesch non configurato) | Messaggio dinamico con lista da `FLESCH_PARAMS.keys()` |
+| Confronto report pre/post — 40 opere × 3 lingue (`content_it_en_fr_es.json`) | 0 differenze nei valori Flesch |
+
+#### Stato finale della fase
+
+| Componente | Stato |
+|------------|-------|
+| `FLESCH_PARAMS` | Nuovo: `{it, en, fr}` con `C`, `asl`, `asw` per lingua |
+| `flesch_index()` | Refactored: formula generica + lookup `FLESCH_PARAMS` |
+| `INDEX_LANGS["flesch"]` | `{"it", "en", "fr"}` |
+| `INDEX_LANGS["gulpease"]` | `{"it"}` — invariato |
+| `INDEX_LANGS["gunning_fog"]` | `{"it", "en"}` — invariato |
+| `_SYLLABLE_COUNTERS` | `{it, en, fr, es}` — invariato (§7.12) |
